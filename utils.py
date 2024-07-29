@@ -3,7 +3,6 @@ import json
 from tqdm import tqdm
 from efficient_ir import EfficientIR
 
-
 NOTEXISTS = 'NOTEXISTS'
 
 
@@ -20,7 +19,6 @@ class Utils:
         )
         self.check_env()
 
-
     def check_env(self):
         if not os.path.exists(self.exists_index_path):
             parent_path = os.path.join(self.exists_index_path, os.pardir)
@@ -28,13 +26,11 @@ class Utils:
             with open(self.exists_index_path, 'w') as wp:
                 wp.write("[]")
 
-
     def get_exists_index(self):
         return json.loads(open(self.exists_index_path, 'rb').read())
 
-
     def get_file_list(self, target_dir):
-        accepted_exts = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp']
+        accepted_exts = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']
         file_path_list = []
         for root, dirs, files in os.walk(target_dir):
             for name in files:
@@ -42,12 +38,12 @@ class Utils:
                     file_path_list.append(os.path.join(root, name))
         return file_path_list
 
-
     def index_target_dir(self, target_dir):
         # 如果已有文件索引就加载
         exists_index = []
         if os.path.exists(self.exists_index_path):
-            exists_index = json.loads(open(self.exists_index_path, 'rb').read())
+            exists_index = json.loads(
+                open(self.exists_index_path, 'rb').read())
         # 如果已有元信息索引就加载
         metainfo = []
         if os.path.exists(self.metainfo_path):
@@ -78,11 +74,11 @@ class Utils:
                 need_index.append(i)
         # 写入索引文件
         with open(self.exists_index_path, 'wb') as wp:
-            wp.write(json.dumps(exists_index,ensure_ascii=False).encode('UTF-8'))
+            wp.write(
+                json.dumps(exists_index, ensure_ascii=False).encode('UTF-8'))
         with open(self.metainfo_path, 'wb') as wp:
-            wp.write(json.dumps(metainfo,ensure_ascii=False).encode('UTF-8'))
-        return [(i,exists_index[i]) for i in need_index]
-
+            wp.write(json.dumps(metainfo, ensure_ascii=False).encode('UTF-8'))
+        return [(i, exists_index[i]) for i in need_index]
 
     def update_ir_index(self, need_index):
         for idx, fpath in tqdm(need_index, ascii=True, desc='更新索引记录'):
@@ -92,27 +88,26 @@ class Utils:
             self.ir_engine.add_fv(fv, idx)
         self.ir_engine.save_index()
 
-
     def remove_nonexists(self):
         exists_index = []
         if os.path.exists(self.exists_index_path):
-            exists_index = json.loads(open(self.exists_index_path, 'rb').read())
+            exists_index = json.loads(
+                open(self.exists_index_path, 'rb').read())
         for idx in tqdm(range(len(exists_index)), ascii=True, desc='删除不存在文件'):
             if not os.path.exists(exists_index[idx]):
-                exists_index[idx] = NOTEXISTS                
+                exists_index[idx] = NOTEXISTS
                 try:
                     self.ir_engine.hnsw_index.mark_deleted(idx)
                 except:
                     pass
         with open(self.exists_index_path, 'wb') as wp:
-            wp.write(json.dumps(exists_index,ensure_ascii=False).encode('UTF-8'))
-
+            wp.write(
+                json.dumps(exists_index, ensure_ascii=False).encode('UTF-8'))
 
     def checkout(self, image_path, exists_index, match_n=5):
         fv = self.ir_engine.get_fv(image_path)
         sim, ids = self.ir_engine.match(fv, match_n)
         return [(sim[i], exists_index[ids[i]]) for i in range(len(ids))]
-
 
     def get_duplicate(self, exists_index, threshold, same_folder):
         matched = set()
@@ -124,7 +119,7 @@ class Utils:
                 continue
             sim, ids = self.ir_engine.match(fv, match_n)
             while sim[-1] > threshold:
-                match_n = round(match_n*1.5)
+                match_n = round(match_n * 1.5)
                 sim, ids = self.ir_engine.match(fv, match_n)
             for i in range(len(ids)):
                 if ids[i] == idx:
