@@ -9,19 +9,30 @@
 如果您有任何新点子，欢迎 fork 实现后 pull request。
 
 ### 功能特性
- - 以图搜图
- - 图片相似度计算
- - 重复图片查找
+
+- 以图搜图
+- 图片相似度计算
+- 重复图片查找
 
 ### 依赖
- - Python 3.6+
- - numpy
- - onnxruntime
- - hnswlib
- - pillow
- - tqdm
- - onnx (若需更换模型则必要)
- - PyQt5
+
+- Python 3.6+
+- numpy
+- onnxruntime
+- hnswlib
+- pillow
+- tqdm
+- onnx (若需更换模型则必要)
+- PyQt5
+
+### 本地构建
+
+构建环境测试于 `python==3.12.4` 和 `pyinstaller==6.9.0`：
+
+```bash
+pip install -r requirements.txt
+pyinstaller build.spec
+```
 
 ### 使用
 
@@ -32,30 +43,35 @@
 在 [Release](https://github.com/Sg4Dylan/EfficientIR/releases) 页面下载最新版程序打包，并解压到不包含中日韩文字的路径下。
 
 初次使用需要建立索引：
+
 1. 双击 `start.bat` 打开
 2. 单击 `设置` - `添加索引目录` 添加需要索引的图库目录
 3. 单击 `更新索引目录` 建立索引
 
 搜索图片：
+
 1. 单击 `...` 选择图片
 2. 设置返回结果数量
 3. 单击 `开始搜索`
 4. 双击返回结果的文件路径打开图片
 
 图片查重：
+
 1. 单击 `查重` 切换到查重功能
 2. 设置过滤结果使用到的相似度阈值（最低为 70%）
 3. 单击 `开始查重`，并坐和放宽
 4. 双击返回结果的文件路径打开图片
 
 后续索引更新：
+
 1. 单击 `设置` - `更新索引目录` 更新索引
 
 ### 更换模型
 
 当前本 repo 已包含以下模型：
- - EfficientNet-B2
- - Once For All (flops@595M_top1@80.0_finetune@75)
+
+- EfficientNet-B2
+- Once For All (flops@<595M_top1@80.0_finetune>@75)
 
 关于将 PyTorch 或其他机器学习框架模型导出为 ONNX 模型的方法此处不再赘述。需要注意的是，导出的 ONNX 模型必须经过优化过程，可以使用 [onnx-simplifier](https://github.com/daquexian/onnx-simplifier) （推荐）或本项目包含的 `opti.py`。
 
@@ -81,11 +97,13 @@ return self.session.run([], {self.model_input: norm_img_data})[0]
 具体的操作请自行阅读并修改代码实现。  
 
 如果是 NVIDIA 显卡，切换 GPU 推理的步骤：  
+
 1. 安装 `onnxruntime-gpu` ；  
 2. 取消 `efficient_ir.py` 第 61 行的注释；  
 3. 将 provider 需要换成 `GPUExecutionProvider`。
 
 支持 DX12 Compute 的任意显卡（包括集成显卡），切换 GPU 推理的步骤：  
+
 1. 安装 `onnxruntime-dml` ；
 2. 取消 `efficient_ir.py` 第 61 行的注释。  
 
@@ -99,11 +117,12 @@ return self.session.run([], {self.model_input: norm_img_data})[0]
 
 ### TODO
 
- - [x] 实现 GUI 工具
- - [ ] 移植到 C++ 使用
- - [ ] 替换 digiKam 内的模糊搜索
+- [x] 实现 GUI 工具
+- [ ] 移植到 C++ 使用
+- [ ] 替换 digiKam 内的模糊搜索
 
 ### References
- - [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch)
- - [Once For All](https://github.com/mit-han-lab/once-for-all)
- - [Hnswlib](https://github.com/nmslib/hnswlib)
+
+- [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch)
+- [Once For All](https://github.com/mit-han-lab/once-for-all)
+- [Hnswlib](https://github.com/nmslib/hnswlib)
