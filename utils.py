@@ -130,8 +130,8 @@ class Utils:
                     continue
                 if not idx in matched:
                     matched.add(idx)
-                path_a = exists_index[idx]
-                path_b = exists_index[ids[i]]
+                path_a = os.path.normpath(exists_index[idx])
+                path_b = os.path.normpath(exists_index[ids[i]])
                 if same_folder:
                     if os.path.dirname(path_a) != os.path.dirname(path_b):
                         continue
