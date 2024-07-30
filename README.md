@@ -31,7 +31,10 @@
 
 ```bash
 pip install -r requirements.txt
+# 构建图形化界面版本
 pyinstaller build.spec
+# 构建命令行版本
+pyinstaller build_nogui.spec
 ```
 
 ### 使用

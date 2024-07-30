@@ -1,0 +1,9 @@
+{
+  "img_size": 260,
+  "index_capacity": 1000000,
+  "model_path": "models/imagenet-b2-opti.onnx",
+  "index_path": "index/index.bin",
+  "exists_index_path": "index/name_index.json",
+  "metainfo_path": "index/metainfo.json",
+  "search_dir": []
+}
