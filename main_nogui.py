@@ -12,6 +12,7 @@ utils = Utils(config)
 def main(argv):
     add_index_dir_list = []
     remove_index_dir_list = []
+    is_get_index_dir = False
     is_update_all_index = False  # update all existed index dir
     update_index_dir_list = []
     is_search_all_index = False  # Search all existed index dir
@@ -20,8 +21,8 @@ def main(argv):
 
     try:
         opts, args = getopt(argv, "", [
-            "add_index_dir=", "remove_index_dir=", "update_index",
-            "update_index_dir=", "search_index",
+            "add_index_dir=", "remove_index_dir=", "get_index_dir",
+            "update_index", "update_index_dir=", "search_index",
             "search_index_similarity_threshold=", "search_index_same_dir"
         ])
     except GetoptError:
@@ -32,6 +33,8 @@ def main(argv):
             add_index_dir_list.append(arg)
         elif opt == '--remove_index_dir':
             remove_index_dir_list.append(arg)
+        elif opt == '--get_index_dir':
+            is_get_index_dir = True
         elif opt == '--update_index':
             is_update_all_index = True
         elif opt == '--update_index_dir':
@@ -52,6 +55,8 @@ def main(argv):
         add_index_dir(add_index_dir_list)
     elif len(remove_index_dir_list):
         remove_index_dir(remove_index_dir_list)
+    elif is_get_index_dir:
+        get_index_dir()
     elif is_update_all_index:
         update_all_index()
     elif len(update_index_dir_list):
@@ -74,6 +79,10 @@ def remove_index_dir(dirs):
         except ValueError:
             print('Path `' + dir + '` not exists in index dir list')
     save_settings()
+
+
+def get_index_dir():
+    return config['search_dir']
 
 
 def update_index(dirs):
