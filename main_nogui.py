@@ -27,7 +27,7 @@ def main(argv):
             "search_index_similarity_threshold=", "search_index_same_dir"
         ])
     except GetoptError:
-        print('Wrong parameters.')
+        sys.stderr('Wrong parameters.')
         sys.exit(2)
     for opt, arg in opts:
         if opt == '--add_index_dir':
@@ -45,8 +45,8 @@ def main(argv):
         elif opt == '--search_index_similarity_threshold':
             threshold = float(arg)
             if (threshold > 100) or (threshold < 70):
-                print('search_index_similarity_threshold should ' +
-                      'between 70 and 100')
+                sys.stderr('search_index_similarity_threshold should ' +
+                           'between 70 and 100')
                 sys.exit(2)
             search_index_similarity_threshold = threshold
         elif opt == '--search_index_same_dir':
@@ -78,12 +78,12 @@ def remove_index_dir(dirs):
         try:
             config['search_dir'].remove(dir)
         except ValueError:
-            print('Path `' + dir + '` not exists in index dir list')
+            sys.stderr('Path `' + dir + '` not exists in index dir list')
     save_settings()
 
 
 def get_index_dir():
-    return config['search_dir']
+    sys.stdout.write(utils.dumps(config['search_dir']))
 
 
 def update_index(dirs):
@@ -99,21 +99,19 @@ def update_all_index():
 
 def search_index_dir(threshold, same_dir):
     if not os.path.exists(utils.exists_index_path):
-        print('You should update index before searching')
+        sys.stderr('You should update index before searching')
         sys.exit(2)
     get_duplicate_res = utils.get_duplicate(utils.get_exists_index(),
                                             threshold, same_dir)
     res = []
     for item in get_duplicate_res:
         res.append({'path_a': item[0], 'path_b': item[1], 'sim': item[2]})
-    print('Search index res:', res)
-    return res
+    sys.stdout.write(utils.dumps(res))
 
 
 def save_settings():
     with open(config_path, 'wb') as wp:
-        wp.write(
-            json.dumps(config, indent=2, ensure_ascii=False).encode('UTF-8'))
+        wp.write(utils.dumps(config, indent=2).encode('UTF-8'))
 
 
 if __name__ == "__main__":

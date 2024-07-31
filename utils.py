@@ -76,10 +76,9 @@ class Utils:
                 need_index.append(i)
         # 写入索引文件
         with open(self.exists_index_path, 'wb') as wp:
-            wp.write(
-                json.dumps(exists_index, ensure_ascii=False).encode('UTF-8'))
+            wp.write(self.dumps(exists_index).encode('UTF-8'))
         with open(self.metainfo_path, 'wb') as wp:
-            wp.write(json.dumps(metainfo, ensure_ascii=False).encode('UTF-8'))
+            wp.write(self.dumps(metainfo).encode('UTF-8'))
         return [(i, exists_index[i]) for i in need_index]
 
     def update_ir_index(self, need_index):
@@ -103,8 +102,7 @@ class Utils:
                 except:
                     pass
         with open(self.exists_index_path, 'wb') as wp:
-            wp.write(
-                json.dumps(exists_index, ensure_ascii=False).encode('UTF-8'))
+            wp.write(self.dumps(exists_index).encode('UTF-8'))
 
     def checkout(self, image_path, exists_index, match_n=5):
         fv = self.ir_engine.get_fv(image_path)
@@ -138,3 +136,6 @@ class Utils:
                     if os.path.dirname(path_a) != os.path.dirname(path_b):
                         continue
                 yield (path_a, path_b, sim[i])
+
+    def dumps(self, obj, **kwargs):
+        return json.dumps(obj, ensure_ascii=False, **kwargs)

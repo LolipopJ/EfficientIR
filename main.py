@@ -153,9 +153,10 @@ class MainUI(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def save_settings(self):
         with open(config_path, 'wb') as wp:
-            wp.write(
-                json.dumps(config, indent=2,
-                           ensure_ascii=False).encode('UTF-8'))
+            wp.write(utils.dumps(
+                config,
+                indent=2,
+            ).encode('UTF-8'))
 
 
 if __name__ == "__main__":
