@@ -1,10 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_dynamic_libs
+# Collect dynamic libraries from onnxruntime
+# More info: https://github.com/microsoft/onnxruntime/issues/13499#issuecomment-2100177948
+binaries = collect_dynamic_libs('onnxruntime', destdir='onnxruntime/capi')
 
 
 a = Analysis(
     ['main_nogui.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=[('nogui/*', 'nogui'), ('models/*', 'models')],
     hiddenimports=[],
     hookspath=[],
