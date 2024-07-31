@@ -4,7 +4,8 @@ import json
 from getopt import getopt, GetoptError
 from utils import Utils
 
-config_path = 'nogui/config.json'
+current_path = os.path.dirname(__file__)
+config_path = os.path.join(current_path, 'nogui/config.json')
 config = json.loads(open(config_path, 'rb').read())
 utils = Utils(config)
 

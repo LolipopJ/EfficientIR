@@ -5,18 +5,20 @@ from efficient_ir import EfficientIR
 
 NOTEXISTS = 'NOTEXISTS'
 
+current_path = os.path.dirname(__file__)
+
 
 class Utils:
 
     def __init__(self, config):
-        self.metainfo_path = config['metainfo_path']
-        self.exists_index_path = config['exists_index_path']
+        self.metainfo_path = os.path.join(current_path,
+                                          config['metainfo_path'])
+        self.exists_index_path = os.path.join(current_path,
+                                              config['exists_index_path'])
         self.ir_engine = EfficientIR(
-            config['img_size'],
-            config['index_capacity'],
-            config['index_path'],
-            config['model_path'],
-        )
+            config['img_size'], config['index_capacity'],
+            os.path.join(current_path, config['index_path']),
+            os.path.join(current_path, config['model_path']))
         self.check_env()
 
     def check_env(self):
