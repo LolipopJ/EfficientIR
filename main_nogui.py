@@ -105,7 +105,7 @@ def search_index_dir(threshold, same_dir):
                                             threshold, same_dir)
     res = []
     for item in get_duplicate_res:
-        res.append({'path_a': item[0], 'path_b': item[1], 'sim': item[2]})
+        res.append({'path_a': item[0], 'path_b': item[1], 'sim': str(item[2])})
     sys.stdout.write(utils.dumps(res))
 
 
