@@ -16,15 +16,17 @@ def main(argv):
     is_get_index_dir = False
     is_update_all_index = False  # update all existed index dir
     update_index_dir_list = []
-    is_search_all_index = False  # Search all existed index dir
-    search_index_similarity_threshold = 98.5  # 70 <= threshold <= 100
-    search_index_same_dir = False
+    is_search_all_index = False  # search all existed index dir
+    search_target = ''  # Search for similar images to the image
+    similarity_threshold = 98.5  # 70 <= threshold <= 100
+    same_dir = False  # search images of same dir
+    match_n = 5
 
     try:
         opts, args = getopt(argv, "", [
             "add_index_dir=", "remove_index_dir=", "get_index_dir",
             "update_index", "update_index_dir=", "search_index",
-            "search_index_similarity_threshold=", "search_index_same_dir"
+            "search_target=", "similarity_threshold=", "same_dir", "match_n="
         ])
     except GetoptError:
         sys.stderr('Wrong parameters.')
@@ -42,15 +44,19 @@ def main(argv):
             update_index_dir_list.append(arg)
         elif opt == '--search_index':
             is_search_all_index = True
-        elif opt == '--search_index_similarity_threshold':
+        elif opt == '--search_target':
+            search_target = arg
+        elif opt == '--similarity_threshold':
             threshold = float(arg)
             if (threshold > 100) or (threshold < 70):
-                sys.stderr('search_index_similarity_threshold should ' +
+                sys.stderr('similarity_threshold should ' +
                            'between 70 and 100')
                 sys.exit(2)
-            search_index_similarity_threshold = threshold
-        elif opt == '--search_index_same_dir':
-            search_index_same_dir = True
+            similarity_threshold = threshold
+        elif opt == '--same_dir':
+            same_dir = True
+        elif opt == '--match_n':
+            match_n = int(arg)
 
     if len(add_index_dir_list):
         add_index_dir(add_index_dir_list)
@@ -63,8 +69,9 @@ def main(argv):
     elif len(update_index_dir_list):
         update_index(update_index_dir_list)
     elif is_search_all_index:
-        search_index_dir(search_index_similarity_threshold,
-                         search_index_same_dir)
+        search_index_dir(similarity_threshold, same_dir)
+    elif search_target:
+        search_index_dir_target(search_target, match_n)
 
 
 def add_index_dir(dirs):
@@ -106,6 +113,18 @@ def search_index_dir(threshold, same_dir):
     res = []
     for item in get_duplicate_res:
         res.append({'path_a': item[0], 'path_b': item[1], 'sim': str(item[2])})
+    sys.stdout.write(utils.dumps(res))
+
+
+def search_index_dir_target(target_file_path, match_n):
+    if not os.path.exists(utils.exists_index_path):
+        sys.stderr('You should update index before searching')
+        sys.exit(2)
+    get_duplicate_res = utils.checkout(target_file_path,
+                                       utils.get_exists_index(), match_n)
+    res = []
+    for item in get_duplicate_res:
+        res.append({'path': item[1], 'sim': str(item[0])})
     sys.stdout.write(utils.dumps(res))
 
 
