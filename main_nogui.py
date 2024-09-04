@@ -4,13 +4,12 @@ import json
 from getopt import getopt, GetoptError
 from utils import Utils
 
-current_path = os.path.dirname(__file__)
-config_path = os.path.join(current_path, 'nogui/config.json')
-config = json.loads(open(config_path, 'rb').read())
-utils = Utils(config)
+current_file_path = os.path.dirname(os.path.abspath(__file__))
 
 
 def main(argv):
+    config_path = os.path.join(current_file_path, 'nogui/config.json')
+    config = {}
     add_index_dir_list = []
     remove_index_dir_list = []
     is_get_index_dir = False
@@ -24,15 +23,18 @@ def main(argv):
 
     try:
         opts, args = getopt(argv, "", [
-            "add_index_dir=", "remove_index_dir=", "get_index_dir",
-            "update_index", "update_index_dir=", "search_index",
-            "search_target=", "similarity_threshold=", "same_dir", "match_n="
+            "config_path=", "add_index_dir=", "remove_index_dir=",
+            "get_index_dir", "update_index", "update_index_dir=",
+            "search_index", "search_target=", "similarity_threshold=",
+            "same_dir", "match_n="
         ])
     except GetoptError:
         sys.stderr('Wrong parameters.')
         sys.exit(2)
     for opt, arg in opts:
-        if opt == '--add_index_dir':
+        if opt == '--config_path':
+            config_path = arg
+        elif opt == '--add_index_dir':
             add_index_dir_list.append(arg)
         elif opt == '--remove_index_dir':
             remove_index_dir_list.append(arg)
@@ -58,53 +60,61 @@ def main(argv):
         elif opt == '--match_n':
             match_n = int(arg)
 
+    config = json.loads(open(config_path, 'rb').read())
+
     if len(add_index_dir_list):
-        add_index_dir(add_index_dir_list)
+        add_index_dir(config_path, config, add_index_dir_list)
     elif len(remove_index_dir_list):
-        remove_index_dir(remove_index_dir_list)
+        remove_index_dir(config_path, config, remove_index_dir_list)
     elif is_get_index_dir:
-        get_index_dir()
+        get_index_dir(config)
     elif is_update_all_index:
-        update_all_index()
+        update_all_index(config)
     elif len(update_index_dir_list):
-        update_index(update_index_dir_list)
+        update_index(config, update_index_dir_list)
     elif is_search_all_index:
-        search_index_dir(similarity_threshold, same_dir)
+        search_index_dir(config, similarity_threshold, same_dir)
     elif search_target:
-        search_index_dir_target(search_target, match_n)
+        search_index_dir_target(config, search_target, match_n)
 
 
-def add_index_dir(dirs):
+def dumps(obj, **kwargs):
+    return json.dumps(obj, ensure_ascii=False, **kwargs)
+
+
+def add_index_dir(config_path, config, dirs):
     config['search_dir'].extend(dirs)
     config['search_dir'] = list(set(config['search_dir']))
-    save_settings()
+    save_settings(config_path, config)
 
 
-def remove_index_dir(dirs):
+def remove_index_dir(config_path, config, dirs):
     for dir in dirs:
         try:
             config['search_dir'].remove(dir)
         except ValueError:
             sys.stderr('Path `' + dir + '` not exists in index dir list')
-    save_settings()
+    save_settings(config_path, config)
 
 
-def get_index_dir():
-    sys.stdout.write(utils.dumps(config['search_dir']))
+def get_index_dir(config):
+    sys.stdout.write(dumps(config['search_dir']))
 
 
-def update_index(dirs):
+def update_index(config, dirs):
+    utils = Utils(config)
     utils.remove_nonexists()
     for index_dir in dirs:
         index_dir_to_update = utils.index_target_dir(index_dir)
         utils.update_ir_index(index_dir_to_update)
 
 
-def update_all_index():
-    update_index(config['search_dir'])
+def update_all_index(config):
+    update_index(config, config['search_dir'])
 
 
-def search_index_dir(threshold, same_dir):
+def search_index_dir(config, threshold, same_dir):
+    utils = Utils(config)
     if not os.path.exists(utils.exists_index_path):
         sys.stderr('You should update index before searching')
         sys.exit(2)
@@ -113,10 +123,11 @@ def search_index_dir(threshold, same_dir):
     res = []
     for item in get_duplicate_res:
         res.append({'path_a': item[0], 'path_b': item[1], 'sim': str(item[2])})
-    sys.stdout.write(utils.dumps(res))
+    sys.stdout.write(dumps(res))
 
 
-def search_index_dir_target(target_file_path, match_n):
+def search_index_dir_target(config, target_file_path, match_n):
+    utils = Utils(config)
     if not os.path.exists(utils.exists_index_path):
         sys.stderr('You should update index before searching')
         sys.exit(2)
@@ -125,12 +136,12 @@ def search_index_dir_target(target_file_path, match_n):
     res = []
     for item in get_duplicate_res:
         res.append({'path': item[1], 'sim': str(item[0])})
-    sys.stdout.write(utils.dumps(res))
+    sys.stdout.write(dumps(res))
 
 
-def save_settings():
+def save_settings(config_path, config):
     with open(config_path, 'wb') as wp:
-        wp.write(utils.dumps(config, indent=2).encode('UTF-8'))
+        wp.write(dumps(config, indent=2).encode('UTF-8'))
 
 
 if __name__ == "__main__":

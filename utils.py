@@ -5,20 +5,19 @@ from efficient_ir import EfficientIR
 
 NOTEXISTS = 'NOTEXISTS'
 
-current_path = os.path.dirname(__file__)
+current_file_path = os.path.dirname(os.path.abspath(__file__))
 
 
 class Utils:
 
     def __init__(self, config):
-        self.metainfo_path = os.path.join(current_path,
-                                          config['metainfo_path'])
-        self.exists_index_path = os.path.join(current_path,
-                                              config['exists_index_path'])
+        self.metainfo_path = self.get_absolute_path(config['metainfo_path'])
+        self.exists_index_path = self.get_absolute_path(
+            config['exists_index_path'])
         self.ir_engine = EfficientIR(
             config['img_size'], config['index_capacity'],
-            os.path.join(current_path, config['index_path']),
-            os.path.join(current_path, config['model_path']))
+            self.get_absolute_path(config['index_path']),
+            self.get_absolute_path(config['model_path']))
         self.check_env()
 
     def check_env(self):
@@ -82,7 +81,9 @@ class Utils:
         return [(i, exists_index[i]) for i in need_index]
 
     def update_ir_index(self, need_index):
-        for idx, fpath in tqdm(need_index, ascii=True, desc='更新索引记录'):
+        for idx, fpath in tqdm(need_index,
+                               ascii=True,
+                               desc='Update index records'):
             fv = self.ir_engine.get_fv(fpath)
             if fv is None:
                 continue
@@ -94,7 +95,9 @@ class Utils:
         if os.path.exists(self.exists_index_path):
             exists_index = json.loads(
                 open(self.exists_index_path, 'rb').read())
-        for idx in tqdm(range(len(exists_index)), ascii=True, desc='删除不存在文件'):
+        for idx in tqdm(range(len(exists_index)),
+                        ascii=True,
+                        desc='Delete non-existent records'):
             if not os.path.exists(exists_index[idx]):
                 exists_index[idx] = NOTEXISTS
                 try:
@@ -111,7 +114,9 @@ class Utils:
 
     def get_duplicate(self, exists_index, threshold, same_folder):
         matched = set()
-        for idx in tqdm(range(len(exists_index)), ascii=True, desc='检索重复图像中'):
+        for idx in tqdm(range(len(exists_index)),
+                        ascii=True,
+                        desc='Retrieve duplicate records'):
             match_n = 5
             try:
                 fv = self.ir_engine.hnsw_index.get_items([idx])[0]
@@ -136,6 +141,12 @@ class Utils:
                     if os.path.dirname(path_a) != os.path.dirname(path_b):
                         continue
                 yield (path_a, path_b, sim[i])
+
+    def get_absolute_path(self, path):
+        if os.path.isabs(path):
+            return path
+        else:
+            return os.path.join(current_file_path, path)
 
     def dumps(self, obj, **kwargs):
         return json.dumps(obj, ensure_ascii=False, **kwargs)
