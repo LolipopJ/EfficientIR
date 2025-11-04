@@ -134,11 +134,9 @@ def get_index_dir(config):
 
 def update_index(dirs, max_process):
     utils.remove_nonexists()
-
-    for index_dir in dirs:
-        need_index, exists_index, metainfo = utils.get_need_index(index_dir)
-        utils.update_ir_index(need_index, max_process)
-        utils.save_meta_files(exists_index, metainfo)
+    need_index, exists_index, metainfo = utils.get_need_index(dirs)
+    utils.update_ir_index(need_index, max_process)
+    utils.save_meta_files(exists_index, metainfo)
 
 
 def update_all_index(config, max_process):

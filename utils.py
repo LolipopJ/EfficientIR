@@ -100,7 +100,7 @@ class Utils:
                     file_path_list.append(os.path.join(root, name))
         return file_path_list
 
-    def get_need_index(self, target_dir):
+    def get_need_index(self, target_dirs):
         # 如果已有文件索引就加载
         exists_index = []
         if os.path.exists(self.exists_index_path):
@@ -110,8 +110,16 @@ class Utils:
         metainfo = []
         if os.path.exists(self.metainfo_path):
             metainfo = json.loads(open(self.metainfo_path, 'rb').read())
-        # 枚举当前指定目录的所有文件全路径
-        this_index = self.get_file_list(target_dir)
+        # 枚举当前指定目录（或目录列表）的所有文件全路径
+        if not isinstance(target_dirs, (list, tuple)):
+            target_dirs = [target_dirs]
+        this_index = []
+        for d in tqdm(target_dirs, ascii=True, desc='Scanning directories'):
+            try:
+                files = self.get_file_list(d)
+            except Exception:
+                files = []
+            this_index.extend(files)
         # 需要特征索引的文件
         need_index = []
         # 更新文件索引

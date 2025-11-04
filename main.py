@@ -145,11 +145,10 @@ class MainUI(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def sync_index(self):
         utils.remove_nonexists()
-        for image_dir in config['search_dir']:
-            res = utils.get_need_index(image_dir)
-            need_index, exists_index, metainfo = res
-            utils.update_ir_index(need_index)
-            utils.save_meta_files(exists_index, metainfo)
+        need_index, exists_index, metainfo = utils.get_need_index(
+            config['search_dir'])
+        utils.update_ir_index(need_index)
+        utils.save_meta_files(exists_index, metainfo)
         self.exists_index = utils.get_exists_index()
         QtWidgets.QMessageBox.information(self, '提示', '索引同步已完成')
 
