@@ -3,30 +3,43 @@ import os
 import json
 from getopt import getopt, GetoptError
 from utils import Utils
+import multiprocessing
+import threading
+import time
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
+STOP_FLAG_PATH = os.path.join(current_file_path, 'process.stop')
+utils = None
 
 
 def main(argv):
+    # When multiprocessing spawns child processes on Windows (spawn start
+    # method), the child may start the script with internal args like
+    # '--multiprocessing-fork'. Avoid running CLI parsing in such child
+    # processes.
+    if any(str(a).startswith('--multiprocessing') for a in sys.argv):
+        return
+
     config_path = os.path.join(current_file_path, 'nogui/config.json')
-    config = {}
     add_index_dir_list = []
     remove_index_dir_list = []
     is_get_index_dir = False
     is_update_all_index = False  # update all existed index dir
     update_index_dir_list = []
+    is_cancel_process = False
     is_search_all_index = False  # search all existed index dir
     search_target = ''  # Search for similar images to the image
     similarity_threshold = 98.5  # 70 <= threshold <= 100
     same_dir = False  # search images of same dir
     match_n = 5
 
+    argv = normalize_argv(argv)
     try:
         opts, args = getopt(argv, "", [
             "config_path=", "add_index_dir=", "remove_index_dir=",
             "get_index_dir", "update_index", "update_index_dir=",
             "search_index", "search_target=", "similarity_threshold=",
-            "same_dir", "match_n="
+            "same_dir", "match_n=", "cancel_process"
         ])
     except GetoptError:
         sys.stderr('Wrong parameters.')
@@ -59,23 +72,38 @@ def main(argv):
             same_dir = True
         elif opt == '--match_n':
             match_n = int(arg)
+        elif opt == '--cancel_process':
+            is_cancel_process = True
 
-    config = json.loads(open(config_path, 'rb').read())
+    clear_cancel_flag()
 
-    if len(add_index_dir_list):
-        add_index_dir(config_path, config, add_index_dir_list)
-    elif len(remove_index_dir_list):
-        remove_index_dir(config_path, config, remove_index_dir_list)
-    elif is_get_index_dir:
-        get_index_dir(config)
-    elif is_update_all_index:
-        update_all_index(config)
-    elif len(update_index_dir_list):
-        update_index(config, update_index_dir_list)
-    elif is_search_all_index:
-        search_index_dir(config, similarity_threshold, same_dir)
-    elif search_target:
-        search_index_dir_target(config, search_target, match_n)
+    if is_cancel_process:
+        request_cancel_process()
+    else:
+        config = json.loads(open(config_path, 'rb').read())
+        global utils
+        utils = Utils(config)
+
+        threading.Thread(
+            target=start_cancel_listener,
+            name='cancel-listener',
+            daemon=True,
+        ).start()
+
+        if len(add_index_dir_list):
+            add_index_dir(config_path, config, add_index_dir_list)
+        elif len(remove_index_dir_list):
+            remove_index_dir(config_path, config, remove_index_dir_list)
+        elif is_get_index_dir:
+            get_index_dir(config)
+        elif is_update_all_index:
+            update_all_index(config)
+        elif len(update_index_dir_list):
+            update_index(update_index_dir_list)
+        elif is_search_all_index:
+            search_index_dir(similarity_threshold, same_dir)
+        elif search_target:
+            search_index_dir_target(search_target, match_n)
 
 
 def dumps(obj, **kwargs):
@@ -101,20 +129,20 @@ def get_index_dir(config):
     sys.stdout.write(dumps(config['search_dir']))
 
 
-def update_index(config, dirs):
-    utils = Utils(config)
+def update_index(dirs):
     utils.remove_nonexists()
+
     for index_dir in dirs:
-        index_dir_to_update = utils.index_target_dir(index_dir)
-        utils.update_ir_index(index_dir_to_update)
+        need_index, exists_index, metainfo = utils.get_need_index(index_dir)
+        utils.update_ir_index(need_index)
+        utils.save_meta_files(exists_index, metainfo)
 
 
 def update_all_index(config):
-    update_index(config, config['search_dir'])
+    update_index(config['search_dir'])
 
 
-def search_index_dir(config, threshold, same_dir):
-    utils = Utils(config)
+def search_index_dir(threshold, same_dir):
     if not os.path.exists(utils.exists_index_path):
         sys.stderr('You should update index before searching')
         sys.exit(2)
@@ -126,8 +154,7 @@ def search_index_dir(config, threshold, same_dir):
     sys.stdout.write(dumps(res))
 
 
-def search_index_dir_target(config, target_file_path, match_n):
-    utils = Utils(config)
+def search_index_dir_target(target_file_path, match_n):
     if not os.path.exists(utils.exists_index_path):
         sys.stderr('You should update index before searching')
         sys.exit(2)
@@ -144,5 +171,72 @@ def save_settings(config_path, config):
         wp.write(dumps(config, indent=2).encode('UTF-8'))
 
 
+def request_cancel_process(create_flag_file=True):
+    """Create the stop-flag file to request cancellation across processes.
+
+    The listener thread polls for this file and will terminate child
+    processes and exit when it sees it.
+    """
+    if create_flag_file:
+        try:
+            with open(STOP_FLAG_PATH, 'w') as wp:
+                wp.write('1')
+        except Exception:
+            pass
+
+
+def clear_cancel_flag():
+    """Remove the stop-flag file if present."""
+    try:
+        if os.path.exists(STOP_FLAG_PATH):
+            os.remove(STOP_FLAG_PATH)
+    except Exception:
+        pass
+
+
+def start_cancel_listener():
+    while True:
+        try:
+            if os.path.exists(STOP_FLAG_PATH):
+                # Terminate all active multiprocessing children
+                for p in multiprocessing.active_children():
+                    try:
+                        p.terminate()
+                        p.join(timeout=0.5)
+                    except Exception:
+                        pass
+                # Give children a short time to exit
+                time.sleep(0.2)
+                # Force exit the main process
+                os._exit(1)
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+
+def normalize_argv(argv):
+    """If an argv element looks like "--opt value" packed into one string
+    (no '=' present), split it into two elements. This helps when callers
+    (e.g. Node spawn) pass option+value as a single argument containing
+    spaces.
+    """
+    out = []
+    for a in argv:
+        if isinstance(a, str) and a.startswith('--') and ' ' in a \
+                and '=' not in a:
+            opt, val = a.split(' ', 1)
+            out.append(opt)
+            out.append(val)
+        else:
+            out.append(a)
+    return out
+
+
 if __name__ == "__main__":
+    # On Windows, ensure multiprocessing freeze support is enabled for
+    # spawn-based child processes (pyinstaller/ frozen apps compatibility).
+    try:
+        multiprocessing.freeze_support()
+    except Exception:
+        pass
     main(sys.argv[1:])
