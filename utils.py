@@ -158,14 +158,14 @@ class Utils:
         except Exception:
             pass
 
-    def update_ir_index(self, need_index):
+    def update_ir_index(self, need_index, max_process):
         # If no items, nothing to do
         if not need_index:
             return
 
         # Determine number of workers: at most cpu_count and len(need_index)
         cpu_count = multiprocessing.cpu_count()
-        num_workers = max(1, min(cpu_count, len(need_index)))
+        num_workers = max(1, min(cpu_count, len(need_index), max_process))
         results = []
 
         # Use a multiprocessing Pool. Each worker will initialize its own
