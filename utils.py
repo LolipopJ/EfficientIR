@@ -100,17 +100,17 @@ class Utils:
                     file_path_list.append(os.path.join(root, name))
         return file_path_list
 
-    def get_need_index(self, target_dirs):
-        # 如果已有文件索引就加载
+    def get_need_index(self, target_dirs=[], check_meta=False):
+        # 加载已有文件元数据列表
+        metainfo = []
+        if os.path.exists(self.metainfo_path):
+            metainfo = json.loads(open(self.metainfo_path, 'rb').read())
+        # 加载已有文件路径列表
         exists_index = []
         if os.path.exists(self.exists_index_path):
             exists_index = json.loads(
                 open(self.exists_index_path, 'rb').read())
-        # 如果已有元信息索引就加载
-        metainfo = []
-        if os.path.exists(self.metainfo_path):
-            metainfo = json.loads(open(self.metainfo_path, 'rb').read())
-        # 枚举当前指定目录（或目录列表）的所有文件全路径
+        # 枚举指定目录（或目录列表）的所有文件全路径
         if not isinstance(target_dirs, (list, tuple)):
             target_dirs = [target_dirs]
         this_index = []
@@ -120,13 +120,12 @@ class Utils:
             except Exception:
                 files = []
             this_index.extend(files)
-        # 需要特征索引的文件
-        need_index = []
-        # 更新文件索引
+        # 将新增的文件路径加入已有文件路径列表
         for i in tqdm(this_index, ascii=True, desc='Scanning new-added files'):
             if i not in exists_index:
                 exists_index.append(i)
-        # 更新元信息索引
+        # 获取待更新索引的文件列表
+        need_index = []
         for i in tqdm(
                 range(len(exists_index)),
                 ascii=True,
@@ -134,18 +133,20 @@ class Utils:
         ):
             if NOTEXISTS in exists_index[i]:
                 continue
-            # 采集元信息
-            file_size = os.path.getsize(exists_index[i])
-            file_mtime = os.path.getmtime(exists_index[i])
-            # 新增元信息
-            if i >= len(metainfo):
-                metainfo.append([file_size, file_mtime])
-                need_index.append(i)
-                continue
-            # 检查元信息更新
-            if metainfo[i][0] != file_size or metainfo[i][1] != file_mtime:
-                metainfo[i] = [file_size, file_mtime]
-                need_index.append(i)
+            if i >= len(metainfo) or check_meta:
+                file_stat = os.stat(exists_index[i])
+                file_size = file_stat.st_size
+                file_mtime = file_stat.st_mtime
+                if i >= len(metainfo):
+                    # 索引新文件
+                    metainfo.append([file_size, file_mtime])
+                    need_index.append(i)
+                elif check_meta:
+                    if metainfo[i][0] != file_size or metainfo[i][
+                            1] != file_mtime:
+                        # 重新索引元数据发生变化的文件
+                        metainfo[i] = [file_size, file_mtime]
+                        need_index.append(i)
         return ([(i, exists_index[i])
                  for i in need_index], exists_index, metainfo)
 
@@ -218,6 +219,8 @@ class Utils:
         self.ir_engine.save_index()
 
     def remove_nonexists(self):
+        """Mark none-existent files in file path index
+        """
         exists_index = []
         if os.path.exists(self.exists_index_path):
             exists_index = json.loads(

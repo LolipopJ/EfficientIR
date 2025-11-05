@@ -26,8 +26,9 @@ def main(argv):
     is_get_index_dir = False
     is_update_all_index = False  # update all existed index dir
     update_index_dir_list = []
+    is_check_meta = False  # check file meta info for re-indexing
     is_search_all_index = False  # search all existed index dir
-    search_target = ''  # Search for similar images to the image
+    search_target = ''  # search for similar images to the image
     similarity_threshold = 98.5  # 70 <= threshold <= 100
     same_dir = False  # search images of same dir
     match_n = 5
@@ -38,7 +39,7 @@ def main(argv):
     try:
         opts, args = getopt(argv, "", [
             "config_path=", "add_index_dir=", "remove_index_dir=",
-            "get_index_dir", "update_index", "update_index_dir=",
+            "get_index_dir", "update_index", "update_index_dir=", "check_meta",
             "search_index", "search_target=", "similarity_threshold=",
             "same_dir", "match_n=", "max_process=", "cancel_process"
         ])
@@ -58,6 +59,8 @@ def main(argv):
             is_update_all_index = True
         elif opt == '--update_index_dir':
             update_index_dir_list.append(arg)
+        elif opt == '--check_meta':
+            is_check_meta = True
         elif opt == '--search_index':
             is_search_all_index = True
         elif opt == '--search_target':
@@ -100,9 +103,13 @@ def main(argv):
         elif is_get_index_dir:
             get_index_dir(config)
         elif is_update_all_index:
-            update_all_index(config, max_process)
+            update_index(dirs=config['search_dir'],
+                         check_meta=is_check_meta,
+                         max_process=max_process)
         elif len(update_index_dir_list):
-            update_index(update_index_dir_list, max_process)
+            update_index(dirs=update_index_dir_list,
+                         check_meta=is_check_meta,
+                         max_process=max_process)
         elif is_search_all_index:
             search_index_dir(similarity_threshold, same_dir)
         elif search_target:
@@ -132,15 +139,12 @@ def get_index_dir(config):
     sys.stdout.write(dumps(config['search_dir']))
 
 
-def update_index(dirs, max_process):
+def update_index(dirs=[], check_meta=False, max_process=4):
     utils.remove_nonexists()
-    need_index, exists_index, metainfo = utils.get_need_index(dirs)
-    utils.update_ir_index(need_index, max_process)
-    utils.save_meta_files(exists_index, metainfo)
-
-
-def update_all_index(config, max_process):
-    update_index(config['search_dir'], max_process)
+    need_index, exists_index, metainfo = utils.get_need_index(
+        target_dirs=dirs, check_meta=check_meta)
+    utils.update_ir_index(need_index=need_index, max_process=max_process)
+    utils.save_meta_files(exists_index=exists_index, metainfo=metainfo)
 
 
 def search_index_dir(threshold, same_dir):
