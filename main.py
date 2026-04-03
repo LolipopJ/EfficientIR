@@ -1,167 +1,247 @@
-import os
 import sys
+import os
 import json
-from PyQt5 import QtCore, QtWidgets, uic
+from getopt import getopt, GetoptError
 from utils import Utils
+import multiprocessing
+import threading
+import time
 
-QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
-config_path = 'gui/config.json'
-config = json.loads(open(config_path, 'rb').read())
-utils = Utils(config)
-Ui_MainWindow, QtBaseClass = uic.loadUiType(config['ui'])
+current_file_path = os.path.dirname(os.path.abspath(__file__))
+STOP_FLAG_PATH = os.path.join(current_file_path, 'process.stop')
+utils = None
 
 
-class MainUI(QtWidgets.QMainWindow, Ui_MainWindow):
+def main(argv):
+    # When multiprocessing spawns child processes on Windows (spawn start
+    # method), the child may start the script with internal args like
+    # '--multiprocessing-fork'. Avoid running CLI parsing in such child
+    # processes.
+    if any(str(a).startswith('--multiprocessing') for a in sys.argv):
+        return
 
-    def __init__(self):
-        QtWidgets.QMainWindow.__init__(self)
-        Ui_MainWindow.__init__(self)
-        self.setupUi(self)
-        self._bind_ui_()
-        self._init_ui_()
+    config_path = os.path.join(current_file_path, './config.json')
+    add_index_dir_list = []
+    remove_index_dir_list = []
+    is_get_index_dir = False
+    is_update_all_index = False  # update all existed index dir
+    update_index_dir_list = []
+    is_check_meta = False  # check file meta info for re-indexing
+    is_search_all_index = False  # search all existed index dir
+    search_target = ''  # search for similar images to the image
+    similarity_threshold = 98.5  # 70 <= threshold <= 100
+    same_dir = False  # search images of same dir
+    match_n = 5
+    max_process = 4
+    is_cancel_process = False
 
-    def _bind_ui_(self):
-        self.selectBtn.clicked.connect(self.openfile)
-        self.startSearch.clicked.connect(self.start_search)
-        self.startSearchDuplicate.clicked.connect(self.start_search_duplicate)
-        self.resultTable.doubleClicked.connect(self.double_click_search_table)
-        self.resultTableDuplicate.doubleClicked.connect(
-            self.double_click_duplicate_table)
-        self.addSearchDir.clicked.connect(self.add_search_dir)
-        self.updateIndex.clicked.connect(self.sync_index)
-        self.removeInvalidIndex.clicked.connect(self.remove_invalid_index)
+    argv = normalize_argv(argv)
+    try:
+        opts, args = getopt(argv, "", [
+            "config_path=", "add_index_dir=", "remove_index_dir=",
+            "get_index_dir", "update_index", "update_index_dir=", "check_meta",
+            "search_index", "search_target=", "similarity_threshold=",
+            "same_dir", "match_n=", "max_process=", "cancel_process"
+        ])
+    except GetoptError:
+        sys.stderr('Wrong parameters.')
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '--config_path':
+            config_path = arg
+        elif opt == '--add_index_dir':
+            add_index_dir_list.append(arg)
+        elif opt == '--remove_index_dir':
+            remove_index_dir_list.append(arg)
+        elif opt == '--get_index_dir':
+            is_get_index_dir = True
+        elif opt == '--update_index':
+            is_update_all_index = True
+        elif opt == '--update_index_dir':
+            update_index_dir_list.append(arg)
+        elif opt == '--check_meta':
+            is_check_meta = True
+        elif opt == '--search_index':
+            is_search_all_index = True
+        elif opt == '--search_target':
+            search_target = arg
+        elif opt == '--similarity_threshold':
+            threshold = float(arg)
+            if (threshold > 100) or (threshold < 70):
+                sys.stderr('similarity_threshold should ' +
+                           'between 70 and 100')
+                sys.exit(2)
+            similarity_threshold = threshold
+        elif opt == '--same_dir':
+            same_dir = True
+        elif opt == '--match_n':
+            match_n = int(arg)
+        elif opt == '--max_process':
+            max_process = int(arg)
+        elif opt == '--cancel_process':
+            is_cancel_process = True
 
-    def _init_ui_(self):
-        if os.path.exists(utils.exists_index_path):
-            self.exists_index = utils.get_exists_index()  # 加载索引
-        self.resultTable.horizontalHeader().setSectionResizeMode(
-            0, QtWidgets.QHeaderView.Stretch)  # 填充显示表格
-        self.resultTable.setEditTriggers(
-            QtWidgets.QAbstractItemView.NoEditTriggers)  # 表格设置只读
-        self.resultTableDuplicate.horizontalHeader().setSectionResizeMode(
-            0, QtWidgets.QHeaderView.Stretch)
-        self.resultTableDuplicate.horizontalHeader().setSectionResizeMode(
-            1, QtWidgets.QHeaderView.Stretch)
-        self.resultTableDuplicate.setEditTriggers(
-            QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.resultTableDuplicate.setSortingEnabled(True)
-        self.searchDirTable.horizontalHeader().setSectionResizeMode(
-            QtWidgets.QHeaderView.Stretch)
-        self.searchDirTable.setEditTriggers(
-            QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.update_dir_table()
+    clear_cancel_flag()
 
-    def openfile(self):
-        self.input_path = QtWidgets.QFileDialog.getOpenFileName(
-            self, '选择图片', '', 'Image files(*.*)')
-        self.filePath.setText(self.input_path[0])
-        self.filePath.setToolTip(f'<img width=300 src="{self.input_path[0]}">')
+    if is_cancel_process:
+        request_cancel_process()
+    else:
+        config = json.loads(open(config_path, 'rb').read())
+        global utils
+        utils = Utils(config)
 
-    def double_click_search_table(self, info):
-        file_path = os.path.normpath(
-            self.resultTable.item(info.row(), 0).text())
-        if os.path.exists(file_path):
-            os.startfile(file_path)
+        threading.Thread(
+            target=start_cancel_listener,
+            name='cancel-listener',
+            daemon=True,
+        ).start()
+
+        if len(add_index_dir_list):
+            add_index_dir(config_path, config, add_index_dir_list)
+        elif len(remove_index_dir_list):
+            remove_index_dir(config_path, config, remove_index_dir_list)
+        elif is_get_index_dir:
+            get_index_dir(config)
+        elif is_update_all_index:
+            update_index(dirs=config['search_dir'],
+                         check_meta=is_check_meta,
+                         max_process=max_process)
+        elif len(update_index_dir_list):
+            update_index(dirs=update_index_dir_list,
+                         check_meta=is_check_meta,
+                         max_process=max_process)
+        elif is_search_all_index:
+            search_index_dir(similarity_threshold, same_dir)
+        elif search_target:
+            search_index_dir_target(search_target, match_n)
+
+
+def dumps(obj, **kwargs):
+    return json.dumps(obj, ensure_ascii=False, **kwargs)
+
+
+def add_index_dir(config_path, config, dirs):
+    config['search_dir'].extend(dirs)
+    config['search_dir'] = list(set(config['search_dir']))
+    save_settings(config_path, config)
+
+
+def remove_index_dir(config_path, config, dirs):
+    for dir in dirs:
+        try:
+            config['search_dir'].remove(dir)
+        except ValueError:
+            sys.stderr('Path `' + dir + '` not exists in index dir list')
+    save_settings(config_path, config)
+
+
+def get_index_dir(config):
+    sys.stdout.write(dumps(config['search_dir']))
+
+
+def update_index(dirs=[], check_meta=False, max_process=4):
+    utils.remove_nonexists()
+    need_index, exists_index, metainfo = utils.get_need_index(
+        target_dirs=dirs, check_meta=check_meta)
+    utils.update_ir_index(need_index=need_index, max_process=max_process)
+    utils.save_meta_files(exists_index=exists_index, metainfo=metainfo)
+
+
+def search_index_dir(threshold, same_dir):
+    if not os.path.exists(utils.exists_index_path):
+        sys.stderr('You should update index before searching')
+        sys.exit(2)
+    get_duplicate_res = utils.get_duplicate(utils.get_exists_index(),
+                                            threshold, same_dir)
+    res = []
+    for item in get_duplicate_res:
+        res.append({'path_a': item[0], 'path_b': item[1], 'sim': str(item[2])})
+    sys.stdout.write(dumps(res))
+
+
+def search_index_dir_target(target_file_path, match_n):
+    if not os.path.exists(utils.exists_index_path):
+        sys.stderr('You should update index before searching')
+        sys.exit(2)
+    get_duplicate_res = utils.checkout(target_file_path,
+                                       utils.get_exists_index(), match_n)
+    res = []
+    for item in get_duplicate_res:
+        res.append({'path': item[1], 'sim': str(item[0])})
+    sys.stdout.write(dumps(res))
+
+
+def save_settings(config_path, config):
+    with open(config_path, 'wb') as wp:
+        wp.write(dumps(config, indent=2).encode('UTF-8'))
+
+
+def request_cancel_process(create_flag_file=True):
+    """Create the stop-flag file to request cancellation across processes.
+
+    The listener thread polls for this file and will terminate child
+    processes and exit when it sees it.
+    """
+    if create_flag_file:
+        try:
+            with open(STOP_FLAG_PATH, 'w') as wp:
+                wp.write('1')
+        except Exception:
+            pass
+
+
+def clear_cancel_flag():
+    """Remove the stop-flag file if present."""
+    try:
+        if os.path.exists(STOP_FLAG_PATH):
+            os.remove(STOP_FLAG_PATH)
+    except Exception:
+        pass
+
+
+def start_cancel_listener():
+    while True:
+        try:
+            if os.path.exists(STOP_FLAG_PATH):
+                # Terminate all active multiprocessing children
+                for p in multiprocessing.active_children():
+                    try:
+                        p.terminate()
+                        p.join(timeout=0.5)
+                    except Exception:
+                        pass
+                # Give children a short time to exit
+                time.sleep(0.2)
+                # Force exit the main process
+                os._exit(1)
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+
+def normalize_argv(argv):
+    """If an argv element looks like "--opt value" packed into one string
+    (no '=' present), split it into two elements. This helps when callers
+    (e.g. Node spawn) pass option+value as a single argument containing
+    spaces.
+    """
+    out = []
+    for a in argv:
+        if isinstance(a, str) and a.startswith('--') and ' ' in a \
+                and '=' not in a:
+            opt, val = a.split(' ', 1)
+            out.append(opt)
+            out.append(val)
         else:
-            QtWidgets.QMessageBox.warning(self, '警告', '图片文件不存在：' + file_path)
-
-    def double_click_duplicate_table(self, info):
-        col = info.column()
-        if col > 1:
-            return
-        row = info.row()
-        file_path = self.resultTableDuplicate.item(row, col).text()
-        if os.path.exists(file_path):
-            os.startfile(file_path)
-        else:
-            QtWidgets.QMessageBox.warning(self, '警告', '图片文件不存在：' + file_path)
-
-    def start_search(self):
-        if not hasattr(self, 'input_path'):
-            self.openfile()
-        if (config['search_dir']
-                == []) or (not os.path.exists(utils.exists_index_path)):
-            QtWidgets.QMessageBox.information(self, '提示', '索引都没有建搜你🐎 搜')
-            return
-        self.resultTable.setRowCount(0)  # 清空表格
-        nc = self.resultCount.value()
-        nc = nc if nc <= len(self.exists_index) else len(self.exists_index)
-        results = utils.checkout(self.input_path[0], self.exists_index, nc)
-        for i in results:
-            row = self.resultTable.rowCount()
-            self.resultTable.insertRow(row)
-            item_sim = QtWidgets.QTableWidgetItem(f'{i[0]:.2f} %')
-            item_sim.setTextAlignment(QtCore.Qt.AlignHCenter
-                                      | QtCore.Qt.AlignVCenter)
-            item_path = QtWidgets.QTableWidgetItem(i[1])
-            item_path.setToolTip(f'{i[1]}<br><img width=300 src="{i[1]}">')
-            self.resultTable.setItem(row, 0, item_path)
-            self.resultTable.setItem(row, 1, item_sim)
-
-    def start_search_duplicate(self):
-        if (config['search_dir']
-                == []) or (not os.path.exists(utils.exists_index_path)):
-            QtWidgets.QMessageBox.information(self, '提示', '索引都没有建查你🐎 查')
-            return
-        self.resultTableDuplicate.setRowCount(0)  # 清空表格
-        threshold = self.similarityThreshold.value()
-        same_folder = self.sameFolder.isChecked()
-        for i in utils.get_duplicate(self.exists_index, threshold,
-                                     same_folder):
-            row = self.resultTableDuplicate.rowCount()
-            self.resultTableDuplicate.insertRow(row)
-            item_path_a = QtWidgets.QTableWidgetItem(i[0])
-            item_path_a.setToolTip(f'{i[0]}<br><img width=300 src="{i[0]}">')
-            item_path_b = QtWidgets.QTableWidgetItem(i[1])
-            item_path_b.setToolTip(f'{i[1]}<br><img width=300 src="{i[1]}">')
-            item_sim = QtWidgets.QTableWidgetItem(f'{i[2]:.2f} %')
-            item_sim.setTextAlignment(QtCore.Qt.AlignHCenter
-                                      | QtCore.Qt.AlignVCenter)
-            self.resultTableDuplicate.setItem(row, 0, item_path_a)
-            self.resultTableDuplicate.setItem(row, 1, item_path_b)
-            self.resultTableDuplicate.setItem(row, 2, item_sim)
-
-    def update_dir_table(self):
-        self.searchDirTable.setRowCount(0)
-        for i in config['search_dir']:
-            row = self.searchDirTable.rowCount()
-            self.searchDirTable.insertRow(row)
-            item = QtWidgets.QTableWidgetItem(i)
-            self.searchDirTable.setItem(row, 0, item)
-
-    def add_search_dir(self):
-        self.input_path = QtWidgets.QFileDialog.getExistingDirectory(
-            self, '选择一个需要索引的图片目录')
-        if not self.input_path:
-            return
-        config['search_dir'].append(self.input_path)
-        self.save_settings()
-        self.update_dir_table()
-
-    def remove_invalid_index(self):
-        utils.remove_nonexists()
-        self.exists_index = utils.get_exists_index()
-        QtWidgets.QMessageBox.information(self, '提示', '无效索引已删除')
-
-    def sync_index(self):
-        utils.remove_nonexists()
-        need_index, exists_index, metainfo = utils.get_need_index(
-            config['search_dir'])
-        utils.update_ir_index(need_index)
-        utils.save_meta_files(exists_index, metainfo)
-        self.exists_index = utils.get_exists_index()
-        QtWidgets.QMessageBox.information(self, '提示', '索引同步已完成')
-
-    def save_settings(self):
-        with open(config_path, 'wb') as wp:
-            wp.write(utils.dumps(
-                config,
-                indent=2,
-            ).encode('UTF-8'))
+            out.append(a)
+    return out
 
 
 if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
-    window = MainUI()
-    window.show()
-    sys.exit(app.exec_())
+    # On Windows, ensure multiprocessing freeze support is enabled for
+    # spawn-based child processes (pyinstaller/ frozen apps compatibility).
+    try:
+        multiprocessing.freeze_support()
+    except Exception:
+        pass
+    main(sys.argv[1:])

@@ -134,3 +134,6 @@ hnswlib/
 
 # index file
 index/
+
+# VS Code settings
+.vscode/
