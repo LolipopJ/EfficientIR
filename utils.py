@@ -2,38 +2,30 @@ import os
 import json
 import multiprocessing
 from tqdm import tqdm
-from efficient_ir import EfficientIR
+from efficient_ir import EfficientIR, FeatureExtractor
 
-NOTEXISTS = 'NOTEXISTS'
+NOTEXISTS = "NOTEXISTS"
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
-STOP_FLAG_FILENAME = 'process.stop'
+STOP_FLAG_FILENAME = "process.stop"
 STOP_FLAG_PATH = os.path.join(current_file_path, STOP_FLAG_FILENAME)
 
-# Global engine used inside worker processes. Each worker will initialize
-# its own EfficientIR instance to compute feature vectors (get_fv).
+# Global feature extractor used inside worker processes.
+# Each worker loads only the ONNX model, not the HNSW index.
 _WORKER_ENGINE = None
 
 
-def _init_worker(img_size,
-                 index_capacity,
-                 index_path,
-                 model_path,
-                 stop_flag_path=None):
-    """Initializer for worker processes. Creates a module-global EfficientIR
-    instance to avoid reloading model on every task call inside the same
-    worker.
+def _init_worker(img_size, model_path, stop_flag_path=None):
+    """Initializer for worker processes. Creates a module-global
+    FeatureExtractor instance (ONNX model only) to avoid reloading the model
+    on every task call inside the same worker.
     """
     global _WORKER_ENGINE
     try:
-        _WORKER_ENGINE = EfficientIR(img_size, index_capacity, index_path,
-                                     model_path)
-        # Worker-visible stop flag path (optional)
+        _WORKER_ENGINE = FeatureExtractor(img_size, model_path)
         global _WORKER_STOP_FLAG
         _WORKER_STOP_FLAG = stop_flag_path
     except Exception:
-        # If worker init fails, ensure _WORKER_ENGINE is None so worker
-        # tasks will return None.
         _WORKER_ENGINE = None
 
 
@@ -46,8 +38,11 @@ def _worker_get_fv(task):
         # If a stop flag path was provided to the worker initializer and the
         # stop file exists, allow worker to exit early.
         try:
-            if '_WORKER_STOP_FLAG' in globals() and _WORKER_STOP_FLAG and \
-                    os.path.exists(_WORKER_STOP_FLAG):
+            if (
+                "_WORKER_STOP_FLAG" in globals()
+                and _WORKER_STOP_FLAG
+                and os.path.exists(_WORKER_STOP_FLAG)
+            ):
                 return None
         except Exception:
             pass
@@ -62,22 +57,24 @@ def _worker_get_fv(task):
 
 
 class Utils:
-
     def __init__(self, config):
-        self.combined_index_path = self.get_absolute_path(
-            config['combined_index_path'])
+        self.combined_index_path = self.get_absolute_path(config["combined_index_path"])
         self.ir_engine = EfficientIR(
-            config['img_size'], config['index_capacity'],
-            self.get_absolute_path(config['index_path']),
-            self.get_absolute_path(config['model_path']))
-        # Save worker init args so child processes can create their own
-        # EfficientIR instances for get_fv computation.
-        self._worker_init_args = (config['img_size'], config['index_capacity'],
-                                  self.get_absolute_path(config['index_path']),
-                                  self.get_absolute_path(config['model_path']))
+            config["img_size"],
+            config["index_capacity"],
+            self.get_absolute_path(config["index_path"]),
+            self.get_absolute_path(config["model_path"]),
+        )
+        # Save worker init args: only img_size and model_path are needed
+        # since workers use FeatureExtractor (no HNSW index loaded).
+        self._worker_init_args = (
+            config["img_size"],
+            self.get_absolute_path(config["model_path"]),
+        )
         # Stop flag path used to request cancellation across processes.
         self.stop_flag_path = self.get_absolute_path(
-            config.get('stop_flag_path', STOP_FLAG_PATH))
+            config.get("stop_flag_path", STOP_FLAG_PATH)
+        )
         self.check_env()
 
     def check_env(self):
@@ -86,32 +83,32 @@ class Utils:
             os.makedirs(os.path.abspath(parent_path), exist_ok=True)
             # 自动迁移旧版两个独立文件（name_index.json + metainfo.json）
             index_dir = os.path.abspath(parent_path)
-            old_exists = os.path.join(index_dir, 'name_index.json')
-            old_meta = os.path.join(index_dir, 'metainfo.json')
-            tmp_path = self.combined_index_path + '.tmp'
+            old_exists = os.path.join(index_dir, "name_index.json")
+            old_meta = os.path.join(index_dir, "metainfo.json")
+            tmp_path = self.combined_index_path + ".tmp"
             if os.path.exists(old_exists):
-                exists_list = json.loads(open(old_exists, 'rb').read())
+                exists_list = json.loads(open(old_exists, "rb").read())
                 meta_list = []
                 if os.path.exists(old_meta):
-                    meta_list = json.loads(open(old_meta, 'rb').read())
+                    meta_list = json.loads(open(old_meta, "rb").read())
                 combined = []
                 for i, path in enumerate(exists_list):
                     size = meta_list[i][0] if i < len(meta_list) else None
                     mtime = meta_list[i][1] if i < len(meta_list) else None
-                    combined.append({'path': path, 'size': size, 'mtime': mtime})
-                with open(tmp_path, 'w', encoding='UTF-8') as wp:
+                    combined.append({"path": path, "size": size, "mtime": mtime})
+                with open(tmp_path, "w", encoding="UTF-8") as wp:
                     wp.write(self.dumps(combined))
             else:
-                with open(tmp_path, 'w', encoding='UTF-8') as wp:
-                    wp.write('[]')
+                with open(tmp_path, "w", encoding="UTF-8") as wp:
+                    wp.write("[]")
             os.replace(tmp_path, self.combined_index_path)
 
     def get_exists_index(self):
-        combined = json.loads(open(self.combined_index_path, 'rb').read())
-        return [entry['path'] for entry in combined]
+        combined = json.loads(open(self.combined_index_path, "rb").read())
+        return [entry["path"] for entry in combined]
 
     def get_file_list(self, target_dir):
-        accepted_exts = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']
+        accepted_exts = [".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"]
         file_path_list = []
         for root, dirs, files in os.walk(target_dir):
             for name in files:
@@ -123,29 +120,29 @@ class Utils:
         # 从合并索引文件加载路径列表与元数据
         combined = []
         if os.path.exists(self.combined_index_path):
-            combined = json.loads(open(self.combined_index_path, 'rb').read())
-        exists_index = [entry['path'] for entry in combined]
-        metainfo = [[entry['size'], entry['mtime']] for entry in combined]
+            combined = json.loads(open(self.combined_index_path, "rb").read())
+        exists_index = [entry["path"] for entry in combined]
+        metainfo = [[entry["size"], entry["mtime"]] for entry in combined]
         # 枚举指定目录（或目录列表）的所有文件全路径
         if not isinstance(target_dirs, (list, tuple)):
             target_dirs = [target_dirs]
         this_index = []
-        for d in tqdm(target_dirs, ascii=True, desc='Scanning directories'):
+        for d in tqdm(target_dirs, ascii=True, desc="Scanning directories"):
             try:
                 files = self.get_file_list(d)
             except Exception:
                 files = []
             this_index.extend(files)
         # 将新增的文件路径加入已有文件路径列表
-        for i in tqdm(this_index, ascii=True, desc='Scanning new-added files'):
+        for i in tqdm(this_index, ascii=True, desc="Scanning new-added files"):
             if i not in exists_index:
                 exists_index.append(i)
         # 获取待更新索引的文件列表
         need_index = []
         for i in tqdm(
-                range(len(exists_index)),
-                ascii=True,
-                desc='Gathering metainfo',
+            range(len(exists_index)),
+            ascii=True,
+            desc="Gathering metainfo",
         ):
             if NOTEXISTS in exists_index[i]:
                 continue
@@ -158,13 +155,11 @@ class Utils:
                     metainfo.append([file_size, file_mtime])
                     need_index.append(i)
                 elif check_meta:
-                    if metainfo[i][0] != file_size or metainfo[i][
-                            1] != file_mtime:
+                    if metainfo[i][0] != file_size or metainfo[i][1] != file_mtime:
                         # 重新索引元数据发生变化的文件
                         metainfo[i] = [file_size, file_mtime]
                         need_index.append(i)
-        return ([(i, exists_index[i])
-                 for i in need_index], exists_index, metainfo)
+        return ([(i, exists_index[i]) for i in need_index], exists_index, metainfo)
 
     def save_meta_files(self, exists_index, metainfo):
         """Persist exists index and metainfo to the combined index file.
@@ -176,11 +171,11 @@ class Utils:
         for i, path in enumerate(exists_index):
             size = metainfo[i][0] if i < len(metainfo) else None
             mtime = metainfo[i][1] if i < len(metainfo) else None
-            combined.append({'path': path, 'size': size, 'mtime': mtime})
-        tmp_path = self.combined_index_path + '.tmp'
+            combined.append({"path": path, "size": size, "mtime": mtime})
+        tmp_path = self.combined_index_path + ".tmp"
         try:
-            with open(tmp_path, 'wb') as wp:
-                wp.write(self.dumps(combined).encode('UTF-8'))
+            with open(tmp_path, "wb") as wp:
+                wp.write(self.dumps(combined).encode("UTF-8"))
             os.replace(tmp_path, self.combined_index_path)
         except Exception:
             pass
@@ -199,24 +194,25 @@ class Utils:
         # EfficientIR instance (via _init_worker) and compute feature vectors.
         try:
             with multiprocessing.Pool(
-                    processes=num_workers,
-                    initializer=_init_worker,
-                    initargs=self._worker_init_args + (self.stop_flag_path, ),
+                processes=num_workers,
+                initializer=_init_worker,
+                initargs=self._worker_init_args + (self.stop_flag_path,),
             ) as pool:
                 # imap keeps memory usage lower for large lists
                 results_iter = pool.imap(_worker_get_fv, need_index)
-                for r in tqdm(results_iter,
-                              total=len(need_index),
-                              ascii=True,
-                              desc='Computing feature vectors'):
+                for r in tqdm(
+                    results_iter,
+                    total=len(need_index),
+                    ascii=True,
+                    desc="Computing feature vectors",
+                ):
                     results.append(r)
         except Exception:
             # If multiprocessing fails for any reason, fall back to
             # sequential processing to keep behavior correct.
             for idx, fpath in tqdm(
-                    need_index,
-                    ascii=True,
-                    desc='Computing feature vectors (sequential)'):
+                need_index, ascii=True, desc="Computing feature vectors (sequential)"
+            ):
                 try:
                     fv = self.ir_engine.get_fv(fpath)
                 except Exception:
@@ -237,25 +233,24 @@ class Utils:
         self.ir_engine.save_index()
 
     def remove_nonexists(self):
-        """Mark none-existent files in the combined index file.
-        """
+        """Mark none-existent files in the combined index file."""
         combined = []
         if os.path.exists(self.combined_index_path):
-            combined = json.loads(open(self.combined_index_path, 'rb').read())
-        for idx in tqdm(range(len(combined)),
-                        ascii=True,
-                        desc='Removing non-existent records'):
-            if combined[idx]['path'] == NOTEXISTS:
+            combined = json.loads(open(self.combined_index_path, "rb").read())
+        for idx in tqdm(
+            range(len(combined)), ascii=True, desc="Removing non-existent records"
+        ):
+            if combined[idx]["path"] == NOTEXISTS:
                 continue
-            if not os.path.exists(combined[idx]['path']):
-                combined[idx] = {'path': NOTEXISTS, 'size': None, 'mtime': None}
+            if not os.path.exists(combined[idx]["path"]):
+                combined[idx] = {"path": NOTEXISTS, "size": None, "mtime": None}
                 try:
                     self.ir_engine.hnsw_index.mark_deleted(idx)
                 except Exception:
                     pass
-        tmp_path = self.combined_index_path + '.tmp'
-        with open(tmp_path, 'wb') as wp:
-            wp.write(self.dumps(combined).encode('UTF-8'))
+        tmp_path = self.combined_index_path + ".tmp"
+        with open(tmp_path, "wb") as wp:
+            wp.write(self.dumps(combined).encode("UTF-8"))
         os.replace(tmp_path, self.combined_index_path)
 
     def checkout(self, image_path, exists_index, match_n=5):
@@ -265,9 +260,9 @@ class Utils:
 
     def get_duplicate(self, exists_index, threshold, same_folder):
         matched = set()
-        for idx in tqdm(range(len(exists_index)),
-                        ascii=True,
-                        desc='Retrieving duplicate records'):
+        for idx in tqdm(
+            range(len(exists_index)), ascii=True, desc="Retrieving duplicate records"
+        ):
             match_n = 5
             try:
                 fv = self.ir_engine.hnsw_index.get_items([idx])[0]
