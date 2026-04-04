@@ -1,6 +1,7 @@
 import os
 import json
 import multiprocessing
+import numpy as np
 from tqdm import tqdm
 from efficient_ir import EfficientIR, FeatureExtractor
 
@@ -219,15 +220,21 @@ class Utils:
                     fv = None
                 results.append((idx, fv) if fv is not None else None)
 
-        # Add computed feature vectors to the main ir_engine in the main
-        # process to avoid concurrent writes to the index structure.
+        # Collect valid (idx, fv) pairs then add to the index in one batch
+        # call, which is significantly faster than adding one vector at a time.
+        valid_ids = []
+        valid_fvs = []
         for item in results:
             if not item:
                 continue
             idx, fv = item
             if fv is None:
                 continue
-            self.ir_engine.add_fv(fv, idx)
+            valid_ids.append(idx)
+            valid_fvs.append(fv)
+
+        if valid_ids:
+            self.ir_engine.add_fv(np.array(valid_fvs), valid_ids)
 
         # Persist index
         self.ir_engine.save_index()

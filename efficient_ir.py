@@ -74,8 +74,14 @@ class EfficientIR:
             return None
         return self.session.run([], {self.model_input: norm_img_data})[0][0]
 
-    def add_fv(self, fv, idx):
-        self.hnsw_index.add_items(fv, idx)
+    def add_fv(self, fvs, ids):
+        """Add a batch of feature vectors to the index.
+
+        Args:
+            fvs: 2-D array-like of shape (N, dim) or a single 1-D vector.
+            ids: list/array of integer ids corresponding to each vector.
+        """
+        self.hnsw_index.add_items(fvs, ids)
 
     def match(self, fv, nc=5):
         query = self.hnsw_index.knn_query(fv, k=nc)
