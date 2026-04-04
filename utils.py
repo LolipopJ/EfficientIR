@@ -61,18 +61,30 @@ def _worker_get_fv(task):
 
 class Utils:
     def __init__(self, config):
-        self.combined_index_path = self.get_absolute_path(config["combined_index_path"])
+        self.exists_index_path = self.get_absolute_path(
+            config.get("exists_index_path", "index/name_index.json")
+        )
+        self.metainfo_path = self.get_absolute_path(
+            config.get("metainfo_path", "index/metainfo.json")
+        )
+        self.combined_index_path = self.get_absolute_path(
+            config.get("combined_index_path", "index/combined_index.json")
+        )
         self.ir_engine = EfficientIR(
             config["img_size"],
             config["index_capacity"],
-            self.get_absolute_path(config["index_path"]),
-            self.get_absolute_path(config["model_path"]),
+            self.get_absolute_path(config.get("index_path", "index/index.bin")),
+            self.get_absolute_path(
+                config.get("model_path", "models/imagenet-b2-opti.onnx")
+            ),
         )
         # Save worker init args: only img_size and model_path are needed
         # since workers use FeatureExtractor (no HNSW index loaded).
         self._worker_init_args = (
             config["img_size"],
-            self.get_absolute_path(config["model_path"]),
+            self.get_absolute_path(
+                config.get("model_path", "models/imagenet-b2-opti.onnx")
+            ),
         )
         # Stop flag path used to request cancellation across processes.
         self.stop_flag_path = self.get_absolute_path(
@@ -85,15 +97,12 @@ class Utils:
             parent_path = os.path.join(self.combined_index_path, os.pardir)
             os.makedirs(os.path.abspath(parent_path), exist_ok=True)
             # 自动迁移旧版两个独立文件（name_index.json + metainfo.json）
-            index_dir = os.path.abspath(parent_path)
-            old_exists = os.path.join(index_dir, "name_index.json")
-            old_meta = os.path.join(index_dir, "metainfo.json")
             tmp_path = self.combined_index_path + ".tmp"
-            if os.path.exists(old_exists):
-                exists_list = json.loads(open(old_exists, "rb").read())
+            if os.path.exists(self.exists_index_path):
+                exists_list = json.loads(open(self.exists_index_path, "rb").read())
                 meta_list = []
-                if os.path.exists(old_meta):
-                    meta_list = json.loads(open(old_meta, "rb").read())
+                if os.path.exists(self.metainfo_path):
+                    meta_list = json.loads(open(self.metainfo_path, "rb").read())
                 combined = []
                 for i, path in enumerate(exists_list):
                     size = meta_list[i][0] if i < len(meta_list) else None
@@ -101,6 +110,9 @@ class Utils:
                     combined.append({"path": path, "size": size, "mtime": mtime})
                 with open(tmp_path, "w", encoding="UTF-8") as wp:
                     wp.write(self.dumps(combined))
+                    os.remove(self.exists_index_path)
+                    if os.path.exists(self.metainfo_path):
+                        os.remove(self.metainfo_path)
             else:
                 with open(tmp_path, "w", encoding="UTF-8") as wp:
                     wp.write("[]")
