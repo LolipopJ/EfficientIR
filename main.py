@@ -33,6 +33,7 @@ def main(argv):
     same_dir = False  # search images of same dir
     match_n = 5
     max_process = 4
+    is_rebuild_index = False
     is_cancel_process = False
 
     argv = normalize_argv(argv)
@@ -54,6 +55,7 @@ def main(argv):
                 "same_dir",
                 "match_n=",
                 "max_process=",
+                "rebuild_index",
                 "cancel_process",
             ],
         )
@@ -91,6 +93,8 @@ def main(argv):
             match_n = int(arg)
         elif opt == "--max_process":
             max_process = int(arg)
+        elif opt == "--rebuild_index":
+            is_rebuild_index = True
         elif opt == "--cancel_process":
             is_cancel_process = True
 
@@ -109,7 +113,9 @@ def main(argv):
             daemon=True,
         ).start()
 
-        if len(add_index_dir_list):
+        if is_rebuild_index:
+            rebuild_index(config, max_process)
+        elif len(add_index_dir_list):
             add_index_dir(config_path, config, add_index_dir_list)
         elif len(remove_index_dir_list):
             remove_index_dir(config_path, config, remove_index_dir_list)
@@ -163,6 +169,37 @@ def update_index(dirs=[], check_meta=False, max_process=4):
     )
     utils.update_ir_index(need_index=need_index, max_process=max_process)
     utils.save_meta_files(exists_index=exists_index, metainfo=metainfo)
+
+
+def rebuild_index(config, max_process=4):
+    """Remove existing binary index and rebuild using current search_dir.
+
+    This deletes the on-disk HNSW file, re-initializes an empty index in
+    memory, persists it, and then runs the normal update flow to populate
+    the index from `config['search_dir']`.
+    """
+    global utils
+    if utils is None:
+        utils = Utils(config)
+
+    idx_path = utils.ir_engine.index_path
+    try:
+        if os.path.exists(idx_path):
+            os.remove(idx_path)
+    except Exception:
+        pass
+
+    try:
+        # Re-initialize and persist an empty index file
+        utils.ir_engine.init_index()
+        utils.ir_engine.save_index()
+    except Exception:
+        pass
+
+    # Run standard update flow to compute feature vectors and add to index
+    update_index(
+        dirs=config.get("search_dir", []), check_meta=False, max_process=max_process
+    )
 
 
 def search_index_dir(threshold, same_dir):
