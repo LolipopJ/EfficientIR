@@ -59,13 +59,13 @@ return self.session.run([], {self.model_input: norm_img_data})[0]
 如果是 NVIDIA 显卡，切换 GPU 推理的步骤：
 
 1. 安装 `onnxruntime-gpu` ；
-2. 取消 `efficient_ir.py` 第 63 行的注释；
+2. 取消 `efficient_ir.py` 的相应注释；
 3. 将 provider 需要换成 `GPUExecutionProvider`。
 
 支持 DX12 Compute 的任意显卡（包括集成显卡），切换 GPU 推理的步骤：
 
 1. 安装 `onnxruntime-dml` ；
-2. 取消 `efficient_ir.py` 第 63 行的注释。
+2. 取消 `efficient_ir.py` 的相应注释。
 
 ## Q&A
 

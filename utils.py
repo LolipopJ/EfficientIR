@@ -114,7 +114,10 @@ class Utils:
         accepted_exts = [".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"]
         file_path_list = []
         for root, dirs, files in os.walk(target_dir):
-            for name in files:
+            # Show progress per-directory when scanning files
+            for name in tqdm(
+                files, ascii=True, desc=f"Scanning files in {root}", unit="file"
+            ):
                 if name.lower().endswith(tuple(accepted_exts)):
                     file_path_list.append(os.path.join(root, name))
         return file_path_list
@@ -171,7 +174,10 @@ class Utils:
         on-disk index reflects completed updates.
         """
         combined = []
-        for i, path in enumerate(exists_index):
+        # Show progress when building metadata for persistence
+        for i, path in enumerate(
+            tqdm(exists_index, ascii=True, desc="Building metadata", unit="item")
+        ):
             size = metainfo[i][0] if i < len(metainfo) else None
             mtime = metainfo[i][1] if i < len(metainfo) else None
             combined.append({"path": path, "size": size, "mtime": mtime})
