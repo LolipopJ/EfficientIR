@@ -42,7 +42,7 @@ class EfficientIR:
         return norm_img_data
 
     def init_index(self):
-        self.hnsw_index = hnswlib.Index(space="l2", dim=1000)
+        self.hnsw_index = hnswlib.Index(space="cosine", dim=1000)
         return self.hnsw_index
 
     def load_index(self):
@@ -79,7 +79,9 @@ class EfficientIR:
 
     def match(self, fv, nc=5):
         query = self.hnsw_index.knn_query(fv, k=nc)
-        similarity = (1 - np.tanh(query[1][0] / 3000)) * 100
+        # hnswlib cosine space 返回的距离为 1 - cosine_similarity，
+        # 故相似度 = (1 - dist) * 100，值域 [0, 100]。
+        similarity = np.clip((1 - query[1][0]) * 100, 0.0, 100.0)
         return similarity, query[0][0]
 
 
