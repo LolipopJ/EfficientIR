@@ -148,7 +148,7 @@ def update_index(dirs=[], check_meta=False, max_process=4):
 
 
 def search_index_dir(threshold, same_dir):
-    if not os.path.exists(utils.exists_index_path):
+    if not os.path.exists(utils.combined_index_path):
         sys.stderr('You should update index before searching')
         sys.exit(2)
     get_duplicate_res = utils.get_duplicate(utils.get_exists_index(),
@@ -160,7 +160,7 @@ def search_index_dir(threshold, same_dir):
 
 
 def search_index_dir_target(target_file_path, match_n):
-    if not os.path.exists(utils.exists_index_path):
+    if not os.path.exists(utils.combined_index_path):
         sys.stderr('You should update index before searching')
         sys.exit(2)
     get_duplicate_res = utils.checkout(target_file_path,

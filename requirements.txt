@@ -4,5 +4,4 @@ onnxruntime>=1.11.1
 Pillow>=9.1.1
 tqdm>=4.64.0
 hnswlib>=0.6.2
-PyQt5>=5.15.7
 pyinstaller>=6.9.0

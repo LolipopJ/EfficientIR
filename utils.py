@@ -64,9 +64,8 @@ def _worker_get_fv(task):
 class Utils:
 
     def __init__(self, config):
-        self.metainfo_path = self.get_absolute_path(config['metainfo_path'])
-        self.exists_index_path = self.get_absolute_path(
-            config['exists_index_path'])
+        self.combined_index_path = self.get_absolute_path(
+            config['combined_index_path'])
         self.ir_engine = EfficientIR(
             config['img_size'], config['index_capacity'],
             self.get_absolute_path(config['index_path']),
@@ -82,14 +81,32 @@ class Utils:
         self.check_env()
 
     def check_env(self):
-        if not os.path.exists(self.exists_index_path):
-            parent_path = os.path.join(self.exists_index_path, os.pardir)
+        if not os.path.exists(self.combined_index_path):
+            parent_path = os.path.join(self.combined_index_path, os.pardir)
             os.makedirs(os.path.abspath(parent_path), exist_ok=True)
-            with open(self.exists_index_path, 'w') as wp:
-                wp.write("[]")
+            # 自动迁移旧版两个独立文件（name_index.json + metainfo.json）
+            index_dir = os.path.abspath(parent_path)
+            old_exists = os.path.join(index_dir, 'name_index.json')
+            old_meta = os.path.join(index_dir, 'metainfo.json')
+            if os.path.exists(old_exists):
+                exists_list = json.loads(open(old_exists, 'rb').read())
+                meta_list = []
+                if os.path.exists(old_meta):
+                    meta_list = json.loads(open(old_meta, 'rb').read())
+                combined = []
+                for i, path in enumerate(exists_list):
+                    size = meta_list[i][0] if i < len(meta_list) else None
+                    mtime = meta_list[i][1] if i < len(meta_list) else None
+                    combined.append({'path': path, 'size': size, 'mtime': mtime})
+                with open(self.combined_index_path, 'w', encoding='UTF-8') as wp:
+                    wp.write(self.dumps(combined))
+            else:
+                with open(self.combined_index_path, 'w') as wp:
+                    wp.write('[]')
 
     def get_exists_index(self):
-        return json.loads(open(self.exists_index_path, 'rb').read())
+        combined = json.loads(open(self.combined_index_path, 'rb').read())
+        return [entry['path'] for entry in combined]
 
     def get_file_list(self, target_dir):
         accepted_exts = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']
@@ -101,15 +118,12 @@ class Utils:
         return file_path_list
 
     def get_need_index(self, target_dirs=[], check_meta=False):
-        # 加载已有文件元数据列表
-        metainfo = []
-        if os.path.exists(self.metainfo_path):
-            metainfo = json.loads(open(self.metainfo_path, 'rb').read())
-        # 加载已有文件路径列表
-        exists_index = []
-        if os.path.exists(self.exists_index_path):
-            exists_index = json.loads(
-                open(self.exists_index_path, 'rb').read())
+        # 从合并索引文件加载路径列表与元数据
+        combined = []
+        if os.path.exists(self.combined_index_path):
+            combined = json.loads(open(self.combined_index_path, 'rb').read())
+        exists_index = [entry['path'] for entry in combined]
+        metainfo = [[entry['size'], entry['mtime']] for entry in combined]
         # 枚举指定目录（或目录列表）的所有文件全路径
         if not isinstance(target_dirs, (list, tuple)):
             target_dirs = [target_dirs]
@@ -151,19 +165,21 @@ class Utils:
                  for i in need_index], exists_index, metainfo)
 
     def save_meta_files(self, exists_index, metainfo):
-        """Persist exists index and metainfo to disk.
+        """Persist exists index and metainfo to the combined index file.
 
         This should be called after update_ir_index finishes so that the
         on-disk index reflects completed updates.
         """
+        combined = []
+        for i, path in enumerate(exists_index):
+            size = metainfo[i][0] if i < len(metainfo) else None
+            mtime = metainfo[i][1] if i < len(metainfo) else None
+            combined.append({'path': path, 'size': size, 'mtime': mtime})
+        tmp_path = self.combined_index_path + '.tmp'
         try:
-            with open(self.exists_index_path, 'wb') as wp:
-                wp.write(self.dumps(exists_index).encode('UTF-8'))
-        except Exception:
-            pass
-        try:
-            with open(self.metainfo_path, 'wb') as wp:
-                wp.write(self.dumps(metainfo).encode('UTF-8'))
+            with open(tmp_path, 'wb') as wp:
+                wp.write(self.dumps(combined).encode('UTF-8'))
+            os.replace(tmp_path, self.combined_index_path)
         except Exception:
             pass
 
@@ -219,23 +235,26 @@ class Utils:
         self.ir_engine.save_index()
 
     def remove_nonexists(self):
-        """Mark none-existent files in file path index
+        """Mark none-existent files in the combined index file.
         """
-        exists_index = []
-        if os.path.exists(self.exists_index_path):
-            exists_index = json.loads(
-                open(self.exists_index_path, 'rb').read())
-        for idx in tqdm(range(len(exists_index)),
+        combined = []
+        if os.path.exists(self.combined_index_path):
+            combined = json.loads(open(self.combined_index_path, 'rb').read())
+        for idx in tqdm(range(len(combined)),
                         ascii=True,
                         desc='Removing non-existent records'):
-            if not os.path.exists(exists_index[idx]):
-                exists_index[idx] = NOTEXISTS
+            if combined[idx]['path'] == NOTEXISTS:
+                continue
+            if not os.path.exists(combined[idx]['path']):
+                combined[idx] = {'path': NOTEXISTS, 'size': None, 'mtime': None}
                 try:
                     self.ir_engine.hnsw_index.mark_deleted(idx)
                 except Exception:
                     pass
-        with open(self.exists_index_path, 'wb') as wp:
-            wp.write(self.dumps(exists_index).encode('UTF-8'))
+        tmp_path = self.combined_index_path + '.tmp'
+        with open(tmp_path, 'wb') as wp:
+            wp.write(self.dumps(combined).encode('UTF-8'))
+        os.replace(tmp_path, self.combined_index_path)
 
     def checkout(self, image_path, exists_index, match_n=5):
         fv = self.ir_engine.get_fv(image_path)
