@@ -1,8 +1,10 @@
-import os
 import json
 import multiprocessing
+import os
+
 import numpy as np
 from tqdm import tqdm
+
 from efficient_ir import EfficientIR, FeatureExtractor
 
 NOTEXISTS = "NOTEXISTS"

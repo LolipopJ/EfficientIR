@@ -1,11 +1,12 @@
-import sys
-import os
 import json
-from getopt import getopt, GetoptError
-from utils import Utils
 import multiprocessing
+import os
+import sys
 import threading
 import time
+from getopt import GetoptError, getopt
+
+from utils import Utils
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
 STOP_FLAG_PATH = os.path.join(current_file_path, "process.stop")

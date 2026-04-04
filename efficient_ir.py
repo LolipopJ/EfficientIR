@@ -1,8 +1,9 @@
 import os
-import numpy as np
-from PIL import Image
+
 import hnswlib
+import numpy as np
 import onnxruntime
+from PIL import Image
 
 
 class EfficientIR:

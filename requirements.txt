@@ -5,3 +5,5 @@ Pillow>=9.1.1
 tqdm>=4.64.0
 hnswlib>=0.6.2
 pyinstaller>=6.9.0
+ruff>=0.15.9
+pre-commit>=4.5.1
