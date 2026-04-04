@@ -14,7 +14,7 @@
 
 ## 本地构建
 
-构建测试于 `python==3.12`，未测试其它 Python 版本是否能构建成功。构建项目：
+构建于 `python>=3.12`，其它版本未测试。执行以下命令安装依赖与构建可执行文件：
 
 ```bash
 pip install -r requirements.txt
