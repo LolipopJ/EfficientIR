@@ -53,7 +53,9 @@ class EfficientIR:
                                        M=48)
 
     def save_index(self):
-        self.hnsw_index.save_index(self.index_path)
+        tmp_path = self.index_path + '.tmp'
+        self.hnsw_index.save_index(tmp_path)
+        os.replace(tmp_path, self.index_path)
 
     def init_model(self):
         self.session_opti = onnxruntime.SessionOptions()

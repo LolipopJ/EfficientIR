@@ -88,6 +88,7 @@ class Utils:
             index_dir = os.path.abspath(parent_path)
             old_exists = os.path.join(index_dir, 'name_index.json')
             old_meta = os.path.join(index_dir, 'metainfo.json')
+            tmp_path = self.combined_index_path + '.tmp'
             if os.path.exists(old_exists):
                 exists_list = json.loads(open(old_exists, 'rb').read())
                 meta_list = []
@@ -98,11 +99,12 @@ class Utils:
                     size = meta_list[i][0] if i < len(meta_list) else None
                     mtime = meta_list[i][1] if i < len(meta_list) else None
                     combined.append({'path': path, 'size': size, 'mtime': mtime})
-                with open(self.combined_index_path, 'w', encoding='UTF-8') as wp:
+                with open(tmp_path, 'w', encoding='UTF-8') as wp:
                     wp.write(self.dumps(combined))
             else:
-                with open(self.combined_index_path, 'w') as wp:
+                with open(tmp_path, 'w', encoding='UTF-8') as wp:
                     wp.write('[]')
+            os.replace(tmp_path, self.combined_index_path)
 
     def get_exists_index(self):
         combined = json.loads(open(self.combined_index_path, 'rb').read())
