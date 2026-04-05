@@ -160,7 +160,7 @@ class Utils:
         for i in tqdm(
             range(len(exists_index)),
             ascii=True,
-            desc="Gathering metainfo",
+            desc="Gathering meta information",
         ):
             if NOTEXISTS in exists_index[i]:
                 continue
@@ -186,10 +186,7 @@ class Utils:
         on-disk index reflects completed updates.
         """
         combined = []
-        # Show progress when building metadata for persistence
-        for i, path in enumerate(
-            tqdm(exists_index, ascii=True, desc="Building metadata", unit="item")
-        ):
+        for i, path in enumerate(exists_index):
             size = metainfo[i][0] if i < len(metainfo) else None
             mtime = metainfo[i][1] if i < len(metainfo) else None
             combined.append({"path": path, "size": size, "mtime": mtime})
@@ -267,12 +264,10 @@ class Utils:
         for idx in tqdm(
             range(len(combined)), ascii=True, desc="Removing non-existent records"
         ):
-            if combined[idx]["path"] == NOTEXISTS:
-                continue
             if not os.path.exists(combined[idx]["path"]):
-                combined[idx] = {"path": NOTEXISTS, "size": None, "mtime": None}
                 try:
                     self.ir_engine.hnsw_index.mark_deleted(idx)
+                    combined[idx] = {"path": NOTEXISTS, "size": None, "mtime": None}
                 except Exception:
                     pass
         tmp_path = self.combined_index_path + ".tmp"

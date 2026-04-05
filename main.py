@@ -9,7 +9,6 @@ from getopt import GetoptError, getopt
 from utils import Utils
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
-STOP_FLAG_PATH = os.path.join(current_file_path, "process.stop")
 utils = None
 
 
@@ -99,15 +98,15 @@ def main(argv):
         elif opt == "--cancel_process":
             is_cancel_process = True
 
+    config = json.loads(open(config_path, "rb").read())
+    global utils
+    utils = Utils(config)
+
     clear_cancel_flag()
 
     if is_cancel_process:
         request_cancel_process()
     else:
-        config = json.loads(open(config_path, "rb").read())
-        global utils
-        utils = Utils(config)
-
         threading.Thread(
             target=start_cancel_listener,
             name="cancel-listener",
@@ -179,10 +178,6 @@ def rebuild_index(config, max_process=4):
     memory, persists it, and then runs the normal update flow to populate
     the index from `config['search_dir']`.
     """
-    global utils
-    if utils is None:
-        utils = Utils(config)
-
     idx_path = utils.ir_engine.index_path
     try:
         if os.path.exists(idx_path):
@@ -242,7 +237,7 @@ def request_cancel_process(create_flag_file=True):
     """
     if create_flag_file:
         try:
-            with open(STOP_FLAG_PATH, "w") as wp:
+            with open(utils.stop_flag_path, "w") as wp:
                 wp.write("1")
         except Exception:
             pass
@@ -251,8 +246,8 @@ def request_cancel_process(create_flag_file=True):
 def clear_cancel_flag():
     """Remove the stop-flag file if present."""
     try:
-        if os.path.exists(STOP_FLAG_PATH):
-            os.remove(STOP_FLAG_PATH)
+        if os.path.exists(utils.stop_flag_path):
+            os.remove(utils.stop_flag_path)
     except Exception:
         pass
 
@@ -260,7 +255,7 @@ def clear_cancel_flag():
 def start_cancel_listener():
     while True:
         try:
-            if os.path.exists(STOP_FLAG_PATH):
+            if os.path.exists(utils.stop_flag_path):
                 # Terminate all active multiprocessing children
                 for p in multiprocessing.active_children():
                     try:
