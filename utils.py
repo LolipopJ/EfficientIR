@@ -264,7 +264,10 @@ class Utils:
         for idx in tqdm(
             range(len(combined)), ascii=True, desc="Removing non-existent records"
         ):
-            if not os.path.exists(combined[idx]["path"]):
+            filePath = combined[idx]["path"]
+            if filePath == NOTEXISTS:
+                continue
+            if not os.path.exists(filePath):
                 try:
                     self.ir_engine.hnsw_index.mark_deleted(idx)
                     combined[idx] = {"path": NOTEXISTS, "size": None, "mtime": None}
@@ -285,11 +288,15 @@ class Utils:
         for idx in tqdm(
             range(len(exists_index)), ascii=True, desc="Retrieving duplicate records"
         ):
-            match_n = 5
+            if exists_index[idx] == NOTEXISTS:
+                continue
+
             try:
                 fv = self.ir_engine.hnsw_index.get_items([idx])[0]
             except RuntimeError:
                 continue
+
+            match_n = 5
             sim, ids = self.ir_engine.match(fv, match_n)
             while sim[-1] > threshold:
                 match_n = round(match_n * 1.5)
@@ -300,6 +307,8 @@ class Utils:
                 if sim[i] < threshold:
                     continue
                 if ids[i] in matched:
+                    continue
+                if exists_index[ids[i]] == NOTEXISTS:
                     continue
                 if idx not in matched:
                     matched.add(idx)
