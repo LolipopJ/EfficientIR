@@ -1,4 +1,5 @@
 import os
+from typing import cast
 
 import hnswlib
 import numpy as np
@@ -20,7 +21,7 @@ class EfficientIR:
     def img_preprocess(self, image_path):
         try:
             img = Image.open(image_path).resize(
-                (self.img_size, self.img_size), Image.BICUBIC
+                (self.img_size, self.img_size), Image.Resampling.BICUBIC
             )
             img = img.convert("RGBA").convert("RGB")
         except OSError:
@@ -73,7 +74,10 @@ class EfficientIR:
         norm_img_data = self.img_preprocess(image_path)
         if norm_img_data is None:
             return None
-        return self.session.run([], {self.model_input: norm_img_data})[0][0]
+        res = cast(
+            np.ndarray, self.session.run([], {self.model_input: norm_img_data})[0]
+        )
+        return res[0]
 
     def add_fv(self, fvs, ids):
         """Add a batch of feature vectors to the index.

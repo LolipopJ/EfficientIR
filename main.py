@@ -9,7 +9,18 @@ from getopt import GetoptError, getopt
 from utils import Utils
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
-utils = None
+utils: Utils | None = None
+
+
+def get_utils(config=None) -> Utils:
+    global utils
+    if utils is None:
+        if config is None:
+            config_path = os.path.join(current_file_path, "./config.json")
+            with open(config_path, "rb") as f:
+                config = json.loads(f.read())
+        utils = Utils(config)
+    return utils
 
 
 def main(argv):
@@ -60,7 +71,7 @@ def main(argv):
             ],
         )
     except GetoptError:
-        sys.stderr("Wrong parameters.")
+        sys.stderr.write("Wrong parameters.\n")
         sys.exit(2)
     for opt, arg in opts:
         if opt == "--config_path":
@@ -84,7 +95,7 @@ def main(argv):
         elif opt == "--similarity_threshold":
             threshold = float(arg)
             if (threshold > 100) or (threshold < 70):
-                sys.stderr("similarity_threshold should " + "between 70 and 100")
+                sys.stderr.write("similarity_threshold should between 70 and 100\n")
                 sys.exit(2)
             similarity_threshold = threshold
         elif opt == "--same_dir":
@@ -99,8 +110,7 @@ def main(argv):
             is_cancel_process = True
 
     config = json.loads(open(config_path, "rb").read())
-    global utils
-    utils = Utils(config)
+    get_utils(config)
 
     clear_cancel_flag()
 
@@ -154,7 +164,7 @@ def remove_index_dir(config_path, config, dirs):
         try:
             config["search_dir"].remove(dir)
         except ValueError:
-            sys.stderr("Path `" + dir + "` not exists in index dir list")
+            sys.stderr.write("Path `" + dir + "` not exists in index dir list\n")
     save_settings(config_path, config)
 
 
@@ -163,12 +173,13 @@ def get_index_dir(config):
 
 
 def update_index(dirs=[], check_meta=False, max_process=4):
-    utils.remove_nonexists()
-    need_index, exists_index, metainfo = utils.get_need_index(
+    u = get_utils()
+    u.remove_nonexists()
+    need_index, exists_index, metainfo = u.get_need_index(
         target_dirs=dirs, check_meta=check_meta
     )
-    utils.update_ir_index(need_index=need_index, max_process=max_process)
-    utils.save_meta_files(exists_index=exists_index, metainfo=metainfo)
+    u.update_ir_index(need_index=need_index, max_process=max_process)
+    u.save_meta_files(exists_index=exists_index, metainfo=metainfo)
 
 
 def rebuild_index(config, max_process=4):
@@ -178,7 +189,8 @@ def rebuild_index(config, max_process=4):
     memory, persists it, and then runs the normal update flow to populate
     the index from `config['search_dir']`.
     """
-    idx_path = utils.ir_engine.index_path
+    u = get_utils()
+    idx_path = u.ir_engine.index_path
     try:
         if os.path.exists(idx_path):
             os.remove(idx_path)
@@ -187,8 +199,8 @@ def rebuild_index(config, max_process=4):
 
     try:
         # Re-initialize and persist an empty index file
-        utils.ir_engine.init_index()
-        utils.ir_engine.save_index()
+        u.ir_engine.init_index()
+        u.ir_engine.save_index()
     except Exception:
         pass
 
@@ -199,11 +211,12 @@ def rebuild_index(config, max_process=4):
 
 
 def search_index_dir(threshold, same_dir):
-    if not os.path.exists(utils.combined_index_path):
-        sys.stderr("You should update index before searching")
+    u = get_utils()
+    if not os.path.exists(u.combined_index_path):
+        sys.stderr.write("You should update index before searching")
         sys.exit(2)
-    get_duplicate_res = utils.get_duplicate(
-        utils.get_exists_index(), threshold, same_dir
+    get_duplicate_res = u.get_duplicate(
+        u.get_exists_index(), threshold, same_dir
     )
     res = []
     for item in get_duplicate_res:
@@ -212,11 +225,12 @@ def search_index_dir(threshold, same_dir):
 
 
 def search_index_dir_target(target_file_path, match_n):
-    if not os.path.exists(utils.combined_index_path):
-        sys.stderr("You should update index before searching")
+    u = get_utils()
+    if not os.path.exists(u.combined_index_path):
+        sys.stderr.write("You should update index before searching")
         sys.exit(2)
-    get_duplicate_res = utils.checkout(
-        target_file_path, utils.get_exists_index(), match_n
+    get_duplicate_res = u.checkout(
+        target_file_path, u.get_exists_index(), match_n
     )
     res = []
     for item in get_duplicate_res:
@@ -237,7 +251,8 @@ def request_cancel_process(create_flag_file=True):
     """
     if create_flag_file:
         try:
-            with open(utils.stop_flag_path, "w") as wp:
+            u = get_utils()
+            with open(u.stop_flag_path, "w") as wp:
                 wp.write("1")
         except Exception:
             pass
@@ -246,8 +261,9 @@ def request_cancel_process(create_flag_file=True):
 def clear_cancel_flag():
     """Remove the stop-flag file if present."""
     try:
-        if os.path.exists(utils.stop_flag_path):
-            os.remove(utils.stop_flag_path)
+        u = get_utils()
+        if os.path.exists(u.stop_flag_path):
+            os.remove(u.stop_flag_path)
     except Exception:
         pass
 
@@ -255,7 +271,8 @@ def clear_cancel_flag():
 def start_cancel_listener():
     while True:
         try:
-            if os.path.exists(utils.stop_flag_path):
+            u = get_utils()
+            if os.path.exists(u.stop_flag_path):
                 # Terminate all active multiprocessing children
                 for p in multiprocessing.active_children():
                     try:
