@@ -99,10 +99,12 @@ class Utils:
             # 自动迁移旧版两个独立文件（name_index.json + metainfo.json）
             tmp_path = self.combined_index_path + ".tmp"
             if os.path.exists(self.exists_index_path):
-                exists_list = json.loads(open(self.exists_index_path, "rb").read())
+                with open(self.exists_index_path, "rb") as f:
+                    exists_list = json.loads(f.read())
                 meta_list = []
                 if os.path.exists(self.metainfo_path):
-                    meta_list = json.loads(open(self.metainfo_path, "rb").read())
+                    with open(self.metainfo_path, "rb") as f:
+                        meta_list = json.loads(f.read())
                 combined = []
                 for i, path in enumerate(exists_list):
                     size = meta_list[i][0] if i < len(meta_list) else None
@@ -119,7 +121,8 @@ class Utils:
             os.replace(tmp_path, self.combined_index_path)
 
     def get_exists_index(self):
-        combined = json.loads(open(self.combined_index_path, "rb").read())
+        with open(self.combined_index_path, "rb") as f:
+            combined = json.loads(f.read())
         return [entry["path"] for entry in combined]
 
     def get_file_list(self, target_dir):
@@ -138,7 +141,8 @@ class Utils:
         # 从合并索引文件加载路径列表与元数据
         combined = []
         if os.path.exists(self.combined_index_path):
-            combined = json.loads(open(self.combined_index_path, "rb").read())
+            with open(self.combined_index_path, "rb") as f:
+                combined = json.loads(f.read())
         exists_index = [entry["path"] for entry in combined]
         metainfo = [[entry["size"], entry["mtime"]] for entry in combined]
         # 枚举指定目录（或目录列表）的所有文件全路径
@@ -152,9 +156,11 @@ class Utils:
                 files = []
             this_index.extend(files)
         # 将新增的文件路径加入已有文件路径列表
+        exists_index_set = set(exists_index)
         for i in tqdm(this_index, ascii=True, desc="Scanning new-added files"):
-            if i not in exists_index:
+            if i not in exists_index_set:
                 exists_index.append(i)
+                exists_index_set.add(i)
         # 获取待更新索引的文件列表
         need_index = []
         for i in tqdm(
@@ -162,7 +168,7 @@ class Utils:
             ascii=True,
             desc="Gathering meta information",
         ):
-            if NOTEXISTS in exists_index[i]:
+            if exists_index[i] == NOTEXISTS:
                 continue
             if i >= len(metainfo) or check_meta:
                 file_stat = os.stat(exists_index[i])
@@ -260,7 +266,8 @@ class Utils:
         """Mark none-existent files in the combined index file."""
         combined = []
         if os.path.exists(self.combined_index_path):
-            combined = json.loads(open(self.combined_index_path, "rb").read())
+            with open(self.combined_index_path, "rb") as f:
+                combined = json.loads(f.read())
         for idx in tqdm(
             range(len(combined)), ascii=True, desc="Removing non-existent records"
         ):
@@ -280,11 +287,19 @@ class Utils:
 
     def checkout(self, image_path, exists_index, match_n=5):
         fv = self.ir_engine.get_fv(image_path)
+        total_count = self.ir_engine.hnsw_index.get_current_count()
+        if total_count == 0:
+            return []
+        match_n = min(match_n, total_count)
         sim, ids = self.ir_engine.match(fv, match_n)
         return [(sim[i], exists_index[ids[i]]) for i in range(len(ids))]
 
     def get_duplicate(self, exists_index, threshold, same_folder):
         matched = set()
+        total_count = self.ir_engine.hnsw_index.get_current_count()
+        if total_count == 0:
+            return
+
         for idx in tqdm(
             range(len(exists_index)), ascii=True, desc="Retrieving duplicate records"
         ):
@@ -296,10 +311,13 @@ class Utils:
             except RuntimeError:
                 continue
 
-            match_n = 5
+            match_n = min(5, total_count)
             sim, ids = self.ir_engine.match(fv, match_n)
-            while sim[-1] > threshold:
-                match_n = round(match_n * 1.5)
+            while sim[-1] > threshold and match_n < total_count:
+                next_match_n = min(round(match_n * 1.5) + 1, total_count)
+                if next_match_n <= match_n:
+                    break
+                match_n = next_match_n
                 sim, ids = self.ir_engine.match(fv, match_n)
             for i in range(len(ids)):
                 if ids[i] == idx:

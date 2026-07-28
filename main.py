@@ -109,7 +109,8 @@ def main(argv):
         elif opt == "--cancel_process":
             is_cancel_process = True
 
-    config = json.loads(open(config_path, "rb").read())
+    with open(config_path, "rb") as f:
+        config = json.loads(f.read())
     get_utils(config)
 
     clear_cancel_flag()
@@ -215,9 +216,7 @@ def search_index_dir(threshold, same_dir):
     if not os.path.exists(u.combined_index_path):
         sys.stderr.write("You should update index before searching")
         sys.exit(2)
-    get_duplicate_res = u.get_duplicate(
-        u.get_exists_index(), threshold, same_dir
-    )
+    get_duplicate_res = u.get_duplicate(u.get_exists_index(), threshold, same_dir)
     res = []
     for item in get_duplicate_res:
         res.append({"path_a": item[0], "path_b": item[1], "sim": str(item[2])})
@@ -229,9 +228,7 @@ def search_index_dir_target(target_file_path, match_n):
     if not os.path.exists(u.combined_index_path):
         sys.stderr.write("You should update index before searching")
         sys.exit(2)
-    get_duplicate_res = u.checkout(
-        target_file_path, u.get_exists_index(), match_n
-    )
+    get_duplicate_res = u.checkout(target_file_path, u.get_exists_index(), match_n)
     res = []
     for item in get_duplicate_res:
         res.append({"path": item[1], "sim": str(item[0])})

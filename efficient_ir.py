@@ -86,6 +86,12 @@ class EfficientIR:
             fvs: 2-D array-like of shape (N, dim) or a single 1-D vector.
             ids: list/array of integer ids corresponding to each vector.
         """
+        current_count = self.hnsw_index.get_current_count()
+        needed = current_count + len(ids)
+        if needed > self.index_capacity:
+            new_capacity = max(self.index_capacity * 2, needed + 1000)
+            self.hnsw_index.resize_index(new_capacity)
+            self.index_capacity = new_capacity
         self.hnsw_index.add_items(fvs, ids)
 
     def match(self, fv, nc=5):
