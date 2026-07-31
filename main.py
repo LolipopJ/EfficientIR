@@ -6,7 +6,7 @@ import threading
 import time
 from getopt import GetoptError, getopt
 
-from utils import Utils
+from utils import STOP_FLAG_PATH, Utils
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
 utils: Utils | None = None
@@ -111,15 +111,19 @@ def main(argv):
 
     with open(config_path, "rb") as f:
         config = json.loads(f.read())
-    get_utils(config)
 
-    clear_cancel_flag()
+    stop_flag_path = get_stop_flag_path(config)
+    clear_cancel_flag(stop_flag_path)
 
     if is_cancel_process:
-        request_cancel_process()
+        # Signal-only request: avoid loading the ONNX model / HNSW index.
+        request_cancel_process(stop_flag_path)
     else:
+        get_utils(config)
+
         threading.Thread(
             target=start_cancel_listener,
+            args=(stop_flag_path,),
             name="cancel-listener",
             daemon=True,
         ).start()
@@ -236,40 +240,47 @@ def search_index_dir_target(target_file_path, match_n):
 
 
 def save_settings(config_path, config):
-    with open(config_path, "wb") as wp:
+    tmp_path = config_path + ".tmp"
+    with open(tmp_path, "wb") as wp:
         wp.write(dumps(config, indent=2).encode("UTF-8"))
+    os.replace(tmp_path, config_path)
 
 
-def request_cancel_process(create_flag_file=True):
+def get_stop_flag_path(config):
+    """Resolve the stop-flag path from config without constructing Utils,
+    so a cancel request doesn't need to load the ONNX model / HNSW index.
+    """
+    path = config.get("stop_flag_path", STOP_FLAG_PATH)
+    return path if os.path.isabs(path) else os.path.join(current_file_path, path)
+
+
+def request_cancel_process(stop_flag_path):
     """Create the stop-flag file to request cancellation across processes.
 
     The listener thread polls for this file and will terminate child
     processes and exit when it sees it.
     """
-    if create_flag_file:
-        try:
-            u = get_utils()
-            with open(u.stop_flag_path, "w") as wp:
-                wp.write("1")
-        except Exception:
-            pass
+    try:
+        with open(stop_flag_path, "w") as wp:
+            wp.write("1")
+    except Exception as e:
+        sys.stderr.write(f"Failed to request cancellation: {e}\n")
+        sys.exit(2)
 
 
-def clear_cancel_flag():
+def clear_cancel_flag(stop_flag_path):
     """Remove the stop-flag file if present."""
     try:
-        u = get_utils()
-        if os.path.exists(u.stop_flag_path):
-            os.remove(u.stop_flag_path)
-    except Exception:
-        pass
+        if os.path.exists(stop_flag_path):
+            os.remove(stop_flag_path)
+    except Exception as e:
+        sys.stderr.write(f"Failed to clear cancel flag: {e}\n")
 
 
-def start_cancel_listener():
+def start_cancel_listener(stop_flag_path):
     while True:
         try:
-            u = get_utils()
-            if os.path.exists(u.stop_flag_path):
+            if os.path.exists(stop_flag_path):
                 # Terminate all active multiprocessing children
                 for p in multiprocessing.active_children():
                     try:
