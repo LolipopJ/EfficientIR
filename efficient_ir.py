@@ -13,17 +13,23 @@ class EfficientIR:
         self.index_capacity = index_capacity
         self.index_path = index_path
         self.model_path = model_path
-        self.init_index()
         self.load_index()
         self.init_model()
         Image.MAX_IMAGE_PIXELS = None
 
     def img_preprocess(self, image_path):
         try:
-            img = Image.open(image_path).resize(
-                (self.img_size, self.img_size), Image.Resampling.BICUBIC
-            )
-            img = img.convert("RGBA").convert("RGB")
+            with Image.open(image_path) as source:
+                # PNG, WebP and AVIF can contain animation despite their suffix.
+                if getattr(source, "is_animated", False):
+                    return None
+                img = (
+                    source.resize(
+                        (self.img_size, self.img_size), Image.Resampling.BICUBIC
+                    )
+                    .convert("RGBA")
+                    .convert("RGB")
+                )
         except OSError:
             print(f"\nFile broken: {image_path}")
             return None
@@ -45,26 +51,35 @@ class EfficientIR:
 
     def init_index(self):
         self.hnsw_index = hnswlib.Index(space="l2", dim=1000)
+        self.hnsw_index.init_index(
+            max_elements=self.index_capacity, ef_construction=200, M=48
+        )
         return self.hnsw_index
 
     def load_index(self):
         if os.path.exists(self.index_path):
+            self.hnsw_index = hnswlib.Index(space="l2", dim=1000)
             self.hnsw_index.load_index(
                 self.index_path, max_elements=self.index_capacity
             )
+            self.index_capacity = self.hnsw_index.get_max_elements()
         else:
-            self.hnsw_index.init_index(
-                max_elements=self.index_capacity, ef_construction=200, M=48
-            )
+            self.init_index()
 
     def save_index(self):
         tmp_path = self.index_path + ".tmp"
+        os.makedirs(os.path.dirname(self.index_path), exist_ok=True)
         self.hnsw_index.save_index(tmp_path)
+        with open(tmp_path, "rb+") as f:
+            os.fsync(f.fileno())
         os.replace(tmp_path, self.index_path)
 
-    def init_model(self):
+    def init_model(self, num_threads=None):
         self.session_opti = onnxruntime.SessionOptions()
         self.session_opti.enable_mem_pattern = False
+        if num_threads is not None:
+            self.session_opti.intra_op_num_threads = max(1, num_threads)
+            self.session_opti.inter_op_num_threads = 1
         self.session = onnxruntime.InferenceSession(self.model_path, self.session_opti)
         # self.session.set_providers(['DmlExecutionProvider'])
         self.model_input = self.session.get_inputs()[0].name
@@ -107,10 +122,10 @@ class FeatureExtractor:
     This avoids loading a potentially large binary index file in every worker.
     """
 
-    def __init__(self, img_size, model_path):
+    def __init__(self, img_size, model_path, num_threads=1):
         self.img_size = img_size
         self.model_path = model_path
-        self.init_model()
+        self.init_model(num_threads)
         Image.MAX_IMAGE_PIXELS = None
 
     # Reuse identical preprocessing and inference logic from EfficientIR.

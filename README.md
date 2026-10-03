@@ -25,6 +25,30 @@ pyinstaller build.spec
 
 图形化界面请移步项目 [LolipopJ/dupimg-finder](https://github.com/LolipopJ/dupimg-finder)。
 
+扫描支持静态 PNG、JPEG（含 JPE/JFIF）、TIFF（含 TIF）、BMP/DIB、WebP、
+AVIF、TGA、ICO 和 PBM/PGM/PPM/PNM；带动画的 PNG、WebP、AVIF 不提取特征。
+
+普通更新只添加新图片及重试未完成/失败的图片；`--check_meta` 额外检查已有
+图片的大小和修改时间。元数据仍使用原有 `path`、`size`、`mtime` 字段，只有
+特征成功插入后才填写大小和修改时间，未完成记录使用 `null`。
+
+特征任务每批最多 128 张，ONNX 推理线程按 CPU 数量与进程数分配。
+`--cancel_process --config_path <配置文件>` 请求取消后，后端停止派发任务、
+终止未完成的 worker，并保存已收到的特征及对应元数据，以退出码 130 结束。
+再次执行普通更新即可继续未完成的图片。取消期间需要等待当前插入和写盘完成。
+
+无变化的普通更新不写入索引或元数据；仅元数据变化时只保存 JSON，
+特征新增、更新、删除及首次建库、重建时保存向量索引。
+
+`--rebuild_index` 按当前 `search_dir` 完整重算，在内存中初始化新索引，保存前
+保留旧磁盘文件。重建取消后保留新索引已完成部分，其余图片可通过普通更新继续。
+
+运行索引更新回归测试（需要已安装运行依赖）：
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## 更换模型
 
 目前包含以下模型：

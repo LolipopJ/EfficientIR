@@ -2,11 +2,9 @@ import json
 import multiprocessing
 import os
 import sys
-import threading
-import time
 from getopt import GetoptError, getopt
 
-from utils import STOP_FLAG_PATH, Utils
+from utils import STOP_FLAG_PATH, ProcessCancelled, Utils
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
 utils: Utils | None = None
@@ -113,20 +111,21 @@ def main(argv):
         config = json.loads(f.read())
 
     stop_flag_path = get_stop_flag_path(config)
-    clear_cancel_flag(stop_flag_path)
 
     if is_cancel_process:
         # Signal-only request: avoid loading the ONNX model / HNSW index.
         request_cancel_process(stop_flag_path)
     else:
+        is_index_update = (
+            is_rebuild_index or is_update_all_index or bool(update_index_dir_list)
+        )
+        # Electron clears this before spawning, so an early cancel is not lost
+        # while Python imports dependencies. CLI callers clear stale flags here.
+        if is_index_update and os.environ.get("EFFICIENTIR_CANCEL_PREPARED") != "1":
+            clear_cancel_flag(stop_flag_path)
         get_utils(config)
-
-        threading.Thread(
-            target=start_cancel_listener,
-            args=(stop_flag_path,),
-            name="cancel-listener",
-            daemon=True,
-        ).start()
+        if is_index_update:
+            get_utils().check_cancelled()
 
         if is_rebuild_index:
             rebuild_index(config, max_process)
@@ -177,42 +176,24 @@ def get_index_dir(config):
     sys.stdout.write(dumps(config["search_dir"]))
 
 
-def update_index(dirs=[], check_meta=False, max_process=4):
+def update_index(dirs=None, check_meta=False, max_process=4):
     u = get_utils()
     u.remove_nonexists()
     need_index, exists_index, metainfo = u.get_need_index(
         target_dirs=dirs, check_meta=check_meta
     )
-    u.update_ir_index(need_index=need_index, max_process=max_process)
-    u.save_meta_files(exists_index=exists_index, metainfo=metainfo)
+    u.update_ir_index(need_index, max_process, exists_index, metainfo)
 
 
 def rebuild_index(config, max_process=4):
-    """Remove existing binary index and rebuild using current search_dir.
-
-    This deletes the on-disk HNSW file, re-initializes an empty index in
-    memory, persists it, and then runs the normal update flow to populate
-    the index from `config['search_dir']`.
-    """
+    """Build a fully initialized fresh index without deleting disk state first."""
     u = get_utils()
-    idx_path = u.ir_engine.index_path
-    try:
-        if os.path.exists(idx_path):
-            os.remove(idx_path)
-    except Exception:
-        pass
-
-    try:
-        # Re-initialize and persist an empty index file
-        u.ir_engine.init_index()
-        u.ir_engine.save_index()
-    except Exception:
-        pass
-
-    # Run standard update flow to compute feature vectors and add to index
-    update_index(
-        dirs=config.get("search_dir", []), check_meta=False, max_process=max_process
+    need_index, exists_index, metainfo = u.get_need_index(
+        config.get("search_dir", []), rebuild=True
     )
+    u.check_cancelled()
+    u.ir_engine.init_index()
+    u.update_ir_index(need_index, max_process, exists_index, metainfo, rebuild=True)
 
 
 def search_index_dir(threshold, same_dir):
@@ -250,16 +231,14 @@ def get_stop_flag_path(config):
     """Resolve the stop-flag path from config without constructing Utils,
     so a cancel request doesn't need to load the ONNX model / HNSW index.
     """
-    path = config.get("stop_flag_path", STOP_FLAG_PATH)
+    path = os.environ.get("EFFICIENTIR_STOP_FLAG_PATH") or config.get(
+        "stop_flag_path", STOP_FLAG_PATH
+    )
     return path if os.path.isabs(path) else os.path.join(current_file_path, path)
 
 
 def request_cancel_process(stop_flag_path):
-    """Create the stop-flag file to request cancellation across processes.
-
-    The listener thread polls for this file and will terminate child
-    processes and exit when it sees it.
-    """
+    """Request a cooperative stop; the update loop saves completed work."""
     try:
         with open(stop_flag_path, "w") as wp:
             wp.write("1")
@@ -275,26 +254,6 @@ def clear_cancel_flag(stop_flag_path):
             os.remove(stop_flag_path)
     except Exception as e:
         sys.stderr.write(f"Failed to clear cancel flag: {e}\n")
-
-
-def start_cancel_listener(stop_flag_path):
-    while True:
-        try:
-            if os.path.exists(stop_flag_path):
-                # Terminate all active multiprocessing children
-                for p in multiprocessing.active_children():
-                    try:
-                        p.terminate()
-                        p.join(timeout=0.5)
-                    except Exception:
-                        pass
-                # Give children a short time to exit
-                time.sleep(0.2)
-                # Force exit the main process
-                os._exit(1)
-        except Exception:
-            pass
-        time.sleep(0.5)
 
 
 def normalize_argv(argv):
@@ -321,4 +280,8 @@ if __name__ == "__main__":
         multiprocessing.freeze_support()
     except Exception:
         pass
-    main(sys.argv[1:])
+    try:
+        main(sys.argv[1:])
+    except (ProcessCancelled, KeyboardInterrupt):
+        sys.stderr.write("Cancelled. Completed feature vectors have been saved.\n")
+        sys.exit(130)
